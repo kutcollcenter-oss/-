@@ -480,8 +480,9 @@
       if (p.style === 'gold') {
         // белые ламели и «корона» с козырьком, как на рендерах (парапет — в buildRoof)
         // козырёк-рамка: кольцо по контуру, внутри видна тёмная кровля
-        const outer = shapeOf(offsetPoly(fp, 1.4));
-        outer.holes.push(new THREE.Path(ccw(offsetPoly(fp, -2.2)).map(([x, y]) => new THREE.Vector2(x, y))));
+        // тонкий козырёк по контуру (на сложных формах широкая рамка ломалась)
+        const outer = shapeOf(offsetPoly(fp, 0.8));
+        outer.holes.push(new THREE.Path(ccw(offsetPoly(fp, -0.5)).map(([x, y]) => new THREE.Vector2(x, y))));
         const crown = new THREE.Mesh(new THREE.ExtrudeGeometry(outer, { depth: 0.7, bevelEnabled: false }), white);
         crown.position.z = top + 2.7; bg.add(crown);
         const under = new THREE.Mesh(new THREE.ShapeGeometry(outer), darkMat); under.position.z = top + 2.68; bg.add(under);
@@ -596,11 +597,20 @@
     const sunRay = new THREE.Raycaster();
     function sunBlocked(pt, az, alt) {
       root.updateMatrixWorld(true);
-      const A = az * Math.PI / 180, h = alt * Math.PI / 180;
+      const A = az * Math.PI / 180 - root.rotation.z, h = alt * Math.PI / 180;
       const d = new THREE.Vector3(Math.sin(A) * Math.cos(h), Math.cos(A) * Math.cos(h), Math.sin(h));
       const o = root.localToWorld(new THREE.Vector3(pt[0], pt[1], pt[2])).addScaledVector(d, 0.8);
       sunRay.set(o, d); sunRay.far = 800;
       return sunRay.intersectObjects(pick, false).length > 0;
+    }
+    // Расстояние до ближайшего дома этого ЖК по горизонтали в направлении az (для выбора вида из окна)
+    function rayDist(pt, az) {
+      root.updateMatrixWorld(true);
+      const A = az * Math.PI / 180 - root.rotation.z, d = new THREE.Vector3(Math.sin(A), Math.cos(A), 0);
+      const o = root.localToWorld(new THREE.Vector3(pt[0], pt[1], pt[2])).addScaledVector(d, 0.8);
+      sunRay.set(o, d); sunRay.far = 400;
+      const hit = sunRay.intersectObjects(pick, false)[0];
+      return hit ? hit.distance : 400;
     }
     // ---------- Свечение квартир, подходящих по бюджету ----------
     const matchMat = new THREE.MeshBasicMaterial({ color: 0x27c26c, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide });
@@ -619,7 +629,7 @@
       matchMesh.geometry = g; matchMesh.visible = true;
     }
     [hoverMesh, selMesh, aptMesh].forEach((x) => { x.userData.noShadow = true; });
-    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches };
+    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -724,7 +734,8 @@
     function setSun(on, az, alt) { sunState.on = on; for (const id in layers) { const L = layers[id]; if (L.built) L.built.setSun(on, az, alt); } map.triggerRepaint(); }
     const sunBlocked = (p, pt, az, alt) => { const L = layers[p.id]; return !!(L && L.built && L.built.sunBlocked(pt, az, alt)); };
     function setMatches(p, quads) { const L = layers[p.id]; if (L && L.built) { L.built.setMatches(quads); map.triggerRepaint(); return true; } return false; }
-    return { pick, highlight, highlightApt, focusBlock, facade, setSun, sunBlocked, setMatches };
+    const rayDist = (p, pt, az) => { const L = layers[p.id]; return L && L.built ? L.built.rayDist(pt, az) : 400; };
+    return { pick, highlight, highlightApt, focusBlock, facade, setSun, sunBlocked, setMatches, rayDist };
   }
 
   window.Yurta3D = { init };

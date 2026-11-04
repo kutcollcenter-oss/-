@@ -327,3 +327,8 @@ body.window-view .chat-panel { display: none; }
 #winBar .wb-floor input { flex: 1; min-width: 140px; accent-color: var(--accent); }
 #winBar .wb-floor b { font-size: 14px; white-space: nowrap; }
 #winBar .wb-floor button { width: 38px; height: 34px; padding: 0; }
+
+#winBar .wb-sides { margin-top: 8px; font-size: 13px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; opacity: .95; }
+#winBar .wb-sides button { padding: 6px 12px; }
+#winBar .wb-sides button.on { background: var(--accent); }
+body.window-view .pmarker { display: none !important; }

@@ -79,6 +79,8 @@
     // участки — светлая подложка под моделью
     map.addSource('y-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: PROJECTS.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring(p, p.plot)] } })) } });
     map.addLayer({ id: 'y-plots', type: 'fill', source: 'y-plots', paint: { 'fill-color': '#d9d4ca', 'fill-opacity': 0.9 } });
+    // формы блоков — по контурам с планировок (выступы, ниши, крылья)
+    for (const p of PROJECTS) for (const b of p.blocks) if (b.plan.outline) { boxOf(b); b.fp = planToLocal(p, b, b.plan.outline); }
     engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
@@ -203,9 +205,11 @@
     return Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 90 : 270) : (vy > 0 ? 0 : 180);
   }
   // Куда смотрят окна квартиры: по положению квартиры на плане этажа
+  const bboxOf = (pts) => { const xs = pts.map((q) => q[0]), ys = pts.map((q) => q[1]); return { X0: Math.min(...xs), X1: Math.max(...xs), Y0: Math.min(...ys), Y1: Math.max(...ys) }; };
+  const boxOf = (b) => b.box0 || (b.box0 = bboxOf(b.fp)); // исходный прямоугольник блока из генплана
   function planUp(p, b) {
     if (b.planUp != null) return b.planUp;
-    const xs = b.fp.map((q) => q[0]), ys = b.fp.map((q) => q[1]);
+    const bb = boxOf(b), xs = [bb.X0, bb.X1], ys = [bb.Y0, bb.Y1];
     const vertical = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
     // вытянутость плана считаем по самим квартирам, а не по размеру картинки (у картинок есть поля)
     const all = b.plan.apts.flatMap((x) => x.poly), pw = Math.max(...all.map((q) => q[0])) - Math.min(...all.map((q) => q[0])), ph = Math.max(...all.map((q) => q[1])) - Math.min(...all.map((q) => q[1]));
@@ -213,16 +217,16 @@
     return vertical && widePlan ? 270 : 0; // план «лёжа» на вытянутом с севера на юг блоке
   }
   // Контур квартиры в метрах участка: план этажа «накладывается» на пятно блока с учётом поворота planUp
-  function aptLocalPoly(p, b, a) {
+  function aptLocalPoly(p, b, a) { return planToLocal(p, b, a.poly); }
+  // Точки плана (пиксели картинки) → метры участка: прямоугольник квартир плана ложится на прямоугольник блока
+  function planToLocal(p, b, pts) {
     const all = b.plan.apts.flatMap((x) => x.poly);
     const px0 = Math.min(...all.map((q) => q[0])), px1 = Math.max(...all.map((q) => q[0]));
     const py0 = Math.min(...all.map((q) => q[1])), py1 = Math.max(...all.map((q) => q[1]));
-    const xs = b.fp.map((q) => q[0]), ys = b.fp.map((q) => q[1]);
-    const W = Math.max(...xs) - Math.min(...xs), H = Math.max(...ys) - Math.min(...ys);
-    const C = [(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2];
+    const bb = boxOf(b), W = bb.X1 - bb.X0, H = bb.Y1 - bb.Y0, C = [(bb.X0 + bb.X1) / 2, (bb.Y0 + bb.Y1) / 2];
     const th = planUp(p, b) / DEG, Rv = [Math.cos(th), -Math.sin(th)], Uv = [Math.sin(th), Math.cos(th)];
     const hR = (Math.abs(Rv[0]) * W + Math.abs(Rv[1]) * H) / 2, hU = (Math.abs(Uv[0]) * W + Math.abs(Uv[1]) * H) / 2;
-    return a.poly.map(([x, y]) => {
+    return pts.map(([x, y]) => {
       const u = (x - px0) / (px1 - px0) - 0.5, t = 0.5 - (y - py0) / (py1 - py0);
       return [C[0] + 2 * hR * u * Rv[0] + 2 * hU * t * Uv[0], C[1] + 2 * hR * u * Rv[1] + 2 * hU * t * Uv[1]];
     });
@@ -861,13 +865,23 @@
     const opts = { center, zoom, bearing, pitch, padding: { top: 0, bottom: 0, left: 0, right: 0 } };
     if (animate) map.flyTo({ ...opts, duration: 1800, essential: true }); else map.jumpTo(opts);
   }
-  function windowGeom(p, b, a) {
-    const wins = aptWindows(p, b, a); if (!wins.length) return null;
-    let vx = 0, vy = 0, cx = 0, cy = 0, L = 0;
-    for (const w of wins) { vx += w.n[0] * w.len; vy += w.n[1] * w.len; cx += w.c[0] * w.len; cy += w.c[1] * w.len; L += w.len; }
-    const nl = Math.hypot(vx, vy) || 1, n = [vx / nl, vy / nl], c = [cx / L, cy / L];
-    return { eye: toLngLat(p, [c[0] + n[0] * 2.5, c[1] + n[1] * 2.5]), az: (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360 };
+  // Стороны, куда выходят окна квартиры: группы кусков фасада с одинаковым направлением
+  function windowSides(p, b, a, f) {
+    const groups = {};
+    for (const w of aptWindows(p, b, a)) {
+      const k = Math.round(azim(w.n[0], w.n[1]) / 45) % 8;
+      (groups[k] = groups[k] || []).push(w);
+    }
+    return Object.values(groups).map((ws) => {
+      let L = 0, cx = 0, cy = 0;
+      for (const w of ws) { cx += w.c[0] * w.len; cy += w.c[1] * w.len; L += w.len; }
+      const n = ws[0].n, c = [cx / L, cy / L];
+      // насколько открыт вид: расстояние до ближайшего дома ЖК в эту сторону (до 400 м)
+      const open = engine ? engine.rayDist(p, [c[0] + n[0] * 0.5, c[1] + n[1] * 0.5, floorBase(p, f || p.firstResidentialFloor) + 1.6], azim(n[0], n[1])) : 400;
+      return { len: L, open, eye: toLngLat(p, [c[0] + n[0] * 3, c[1] + n[1] * 3]), az: (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360 };
+    }).sort((x, y) => (Math.min(y.open, 150) * Math.sqrt(y.len)) - (Math.min(x.open, 150) * Math.sqrt(x.len)));
   }
+  function windowGeom(p, b, a, i = 0, f) { const s = windowSides(p, b, a, f); return s.length ? { ...s[Math.min(i, s.length - 1)], sides: s, i: Math.min(i, s.length - 1) } : null; }
   function showViewPlaces(g) {
     clearPlaceMarkers();
     const list = nearbyPlaces(g.eye, 1500).filter((x) => angDiff(bearingTo(g.eye, x.ll), g.az) < 55);
@@ -876,7 +890,7 @@
     return list.length;
   }
   function openWindowView(p, b, f, a) {
-    const g = windowGeom(p, b, a);
+    const g = windowGeom(p, b, a, 0, f);
     if (!g) { openModal('<h2>Вид из окна</h2><p class="muted">Не удалось определить окна этой квартиры.</p>'); return; }
     viewMode = { p, b, f, a, g };
     map.setMaxPitch(85);
@@ -887,11 +901,12 @@
     renderWinBar();
   }
   function renderWinBar() {
-    const { p, b, f, a, g } = viewMode;
+    const { p, b, a, g } = viewMode, f = viewMode.f;
     const photos = ((mediaCache[p.id] || {}).media || []).filter((m) => m.type === 'view' && (!m.block || m.block === b.id) && (!m.floorFrom || f >= m.floorFrom) && (!m.floorTo || f <= m.floorTo) && (!m.side || m.side === sideOf(g.az)));
     let bar = $('#winBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'winBar'; document.body.append(bar); }
     const h = Math.round(floorBase(p, f) + 1.6);
-    bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(g.az)]}</span></div>
+    const sideBtns = g.sides.length > 1 ? `<div class="wb-sides">Окна выходят на: ${g.sides.map((sd, i) => `<button data-side="${i}" class="${i === g.i ? 'on' : ''}">${SIDES[sideOf(sd.az)]}</button>`).join('')}</div>` : '';
+    bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(g.az)]}</span></div>${sideBtns}
       <div class="wb-floor"><button data-wv="down" ${f <= p.firstResidentialFloor ? 'disabled' : ''} aria-label="Этаж ниже">▼</button>
         <input type="range" id="wbF" min="${p.firstResidentialFloor}" max="${b.floors}" value="${f}" aria-label="Этаж">
         <button data-wv="up" ${f >= b.floors ? 'disabled' : ''} aria-label="Этаж выше">▲</button>
@@ -908,6 +923,12 @@
       bar.querySelector('[data-wv=up]').disabled = nf >= b.floors;
     };
     $('#wbF').oninput = (e) => setFloor(+e.target.value, false);
+    bar.querySelectorAll('[data-side]').forEach((btn) => btn.onclick = () => {
+      const ng = windowGeom(p, b, a, +btn.dataset.side, viewMode.f); viewMode.g = ng;
+      placeCamera(ng.eye, floorBase(p, viewMode.f) + 1.6, ng.az, 80, true);
+      map.once('moveend', () => { if (viewMode) showViewPlaces(ng); });
+      renderWinBar();
+    });
     bar.querySelectorAll('[data-wv]').forEach((btn) => btn.onclick = () => {
       const k = btn.dataset.wv;
       if (k === 'exit') return closeWindowView(true);
