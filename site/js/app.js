@@ -254,6 +254,7 @@
     state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
     selectFloor3D(state.project, state.block, state.floor);
+    if (engine) engine.focusBlock(state.block ? p : null, b); // остальные блоки — полупрозрачные, чтобы не закрывали вид
     if (engine) engine.highlightApt(state.apt ? p : null, b, state.floor, state.apt ? aptLocalPoly(p, b, state.apt) : null);
     updateMarkerVisibility();
     document.documentElement.style.setProperty('--brand', p ? p.brandColor : '#14161a');
