@@ -325,6 +325,51 @@
     root.add(body, cab);
   }
 
+  // Покрытие кровли «под плитку» (по рендерам): светло-серое с еле заметной сеткой швов
+  function texRoof(base, seam) {
+    const t = canvasTex(256, 256, (g, W, H) => {
+      g.fillStyle = base; g.fillRect(0, 0, W, H);
+      const r = rng(7);
+      for (let y = 0; y < H; y += 32) for (let x = 0; x < W; x += 32) { g.fillStyle = `rgba(0,0,0,${0.02 + r() * 0.05})`; g.fillRect(x, y, 32, 32); }
+      g.strokeStyle = seam; g.lineWidth = 2;
+      for (let i = 0; i <= W; i += 32) { g.beginPath(); g.moveTo(i, 0); g.lineTo(i, H); g.moveTo(0, i); g.lineTo(W, i); g.stroke(); }
+    });
+    t.repeat.set(0.25, 0.25); // ShapeGeometry даёт UV в метрах → плитка 4 м
+    return t;
+  }
+  const ROOF_STYLE = {
+    gold: { roof: '#b7b9bc', seam: 'rgba(255,255,255,.35)', box: 0xd9dadc, cap: 0xf3f2ee, parapet: 1.4, vents: 0 },
+    ordo: { roof: '#8f9195', seam: 'rgba(40,40,45,.35)', box: 0x3b3e43, cap: 0x2e3135, parapet: 1.1, vents: 7 },
+    plus: { roof: '#a4a6a9', seam: 'rgba(60,60,65,.3)', box: 0xc9cacc, cap: 0xf0efeb, parapet: 1.1, vents: 3 },
+  };
+  // Кровля блока: покрытие, белый парапет, надстройки лифтов/выходов, вентиляция (как на рендерах)
+  function buildRoof(grp, p, b, fp, top, st, mats, seed) {
+    const xs = fp.map((q) => q[0]), ys = fp.map((q) => q[1]);
+    const X0 = Math.min(...xs), X1 = Math.max(...xs), Y0 = Math.min(...ys), Y1 = Math.max(...ys), W = X1 - X0, H = Y1 - Y0;
+    const roof = flat(fp, top, mats.roof); roof.userData = { pid: p.id, block: b.id };
+    grp.add(roof);
+    // парапет — белое кольцо толщиной 0.35 м
+    const ring = shapeOf(fp); ring.holes.push(new THREE.Path(ccw(offsetPoly(fp, -0.35)).map(([x, y]) => new THREE.Vector2(x, y))));
+    const par = new THREE.Mesh(new THREE.ExtrudeGeometry(ring, { depth: st.parapet, bevelEnabled: false }), mats.white); par.position.z = top; grp.add(par);
+    // надстройки: у вытянутых блоков две (над лестнично-лифтовыми узлами), у квадратных — одна
+    const long = Math.max(W, H) / Math.min(W, H) > 1.25, alongX = W >= H, boxes = [];
+    const cx = (X0 + X1) / 2, cy = (Y0 + Y1) / 2, L = alongX ? W : H;
+    if (long) for (const k of [-0.24, 0.24]) boxes.push(alongX ? [cx + k * L, cy, 6.2, 4.2] : [cx, cy + k * L, 4.2, 6.2]);
+    else boxes.push([cx, cy, 5, 5]);
+    for (const [x, y, w, h] of boxes) {
+      grp.add(boxMesh(x - w / 2, y - h / 2, top, x + w / 2, y + h / 2, top + 2.9, mats.box));
+      grp.add(boxMesh(x - w / 2 - 0.25, y - h / 2 - 0.25, top + 2.9, x + w / 2 + 0.25, y + h / 2 + 0.25, top + 3.15, mats.cap));
+    }
+    // вентиляционные выходы и наружные блоки кондиционеров — мелкие тёмные кубики
+    const r = rng(seed + b.id.charCodeAt(0) * 13), n = long ? st.vents : st.vents + 6;
+    for (let i = 0; i < n; i++) {
+      const x = X0 + 1.5 + r() * (W - 3), y = Y0 + 1.5 + r() * (H - 3), s = 0.5 + r() * 0.5;
+      if (boxes.some(([bx, by, bw, bh]) => Math.abs(x - bx) < bw / 2 + 1 && Math.abs(y - by) < bh / 2 + 1)) continue;
+      grp.add(boxMesh(x - s / 2, y - s / 2, top, x + s / 2, y + s / 2, top + 0.6 + r() * 0.5, mats.vent));
+    }
+    return roof;
+  }
+
   /* ---------- Сцена объекта ---------- */
   function buildScene(p, api) {
     const scene = new THREE.Scene();
@@ -344,7 +389,8 @@
     const kinderMat = lambert({ map: texKinder(seed + 2) });
     const parkadeMat = lambert({ map: texParkade() });
     const white = lambert({ color: 0xf4f3ef });
-    const roofMat = lambert({ color: 0x8f9397 });
+    const rs = ROOF_STYLE[p.style] || ROOF_STYLE.plus;
+    const roofMats = { roof: lambert({ map: texRoof(rs.roof, rs.seam) }), white: lambert({ color: 0xf4f3ef }), box: lambert({ color: rs.box }), cap: lambert({ color: rs.cap }), vent: lambert({ color: 0x3a3d42 }) };
     const darkMat = lambert({ color: 0x2a2f36 });
     const blankMat = lambert({ color: p.blankColor || 0xe9e8e3 });
     const pick = [];
@@ -428,12 +474,11 @@
       }
       walls.userData = { pid: p.id, block: b.id };
       bg.add(walls); pick.push(walls);
-      const roof = flat(fp, top, roofMat); roof.userData = { pid: p.id, block: b.id }; bg.add(roof); pick.push(roof);
+      const roof = buildRoof(bg, p, b, fp, top, rs, roofMats, seed); pick.push(roof);
       bg.add(slab(offsetPoly(fp, 0.12), p.residentialBase - 0.4, p.residentialBase + 0.1, white)); // цокольный пояс
 
       if (p.style === 'gold') {
-        // парапет, белые ламели и «корона» с козырьком, как на рендерах
-        bg.add(new THREE.Mesh(wallGeometry(fp, top, top + 1.4, 1, 1), white));
+        // белые ламели и «корона» с козырьком, как на рендерах (парапет — в buildRoof)
         // козырёк-рамка: кольцо по контуру, внутри видна тёмная кровля
         const outer = shapeOf(offsetPoly(fp, 1.4));
         outer.holes.push(new THREE.Path(ccw(offsetPoly(fp, -2.2)).map(([x, y]) => new THREE.Vector2(x, y))));
@@ -456,8 +501,7 @@
           }
         });
       } else {
-        bg.add(new THREE.Mesh(wallGeometry(fp, top, top + 1.1, 1, 1), white));
-        bg.add(slab(offsetPoly(fp, 0.15), top + 1.1, top + 1.3, darkMat));
+        // кровля целиком строится в buildRoof (раньше здесь лежала тёмная плита — крыши выглядели чёрными)
       }
       instanced(bg, fins, finMat); instanced(bg, bands, finMat);
       blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick, pieces };
