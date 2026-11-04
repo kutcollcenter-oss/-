@@ -305,6 +305,7 @@
     state.apt = state.floor ? a || null : null;
     if (viewMode && (!state.apt || viewMode.a !== state.apt)) closeWindowView(false);
     if (!state.apt) sunOff();
+    if (!viewMode) clearPlaceMarkers();
     selectFloor3D(state.project, state.block, state.floor);
     if (engine) engine.focusBlock(state.block ? p : null, b, state.block ? focusTargets(p, b, state.floor, state.apt) : []); // прозрачные — только те блоки, что закрывают вид
     if (engine) engine.highlightApt(state.apt ? p : null, b, state.floor, state.apt ? aptLocalPoly(p, b, state.apt) : null);
@@ -544,6 +545,7 @@
       </div>
       <p class="muted" style="font-size:13px">${esc(p.about)}</p>
       ${budgetDone() ? '<div class="glow-note"><i></i>Зелёным на доме — квартиры по вашему бюджету</div>' : ''}
+      ${nearbyHtml()}
       ${progressHtml()}
       <div class="section-title"><h3>Выберите блок</h3><span class="small">или нажмите на этаж в 3D</span></div>
       <div class="blocks">${p.blocks.map((b) => `<button class="block-btn" data-go="#/${p.id}/${b.id}"><b>${b.id}</b><span>${b.floors} эт. · ${blockFree(p, b)} своб.</span></button>`).join('')}</div>
@@ -552,6 +554,7 @@
     bindGallery(p);
     bindBlockHover(p);
     bindProgress(p);
+    bindNearby(p);
   }
   function bindBlockHover(p) {
     panelBody.querySelectorAll('.block-btn').forEach((btn) => {
@@ -771,51 +774,160 @@
     draw(); moveSun();
   }
 
-  /* ---------- Вид из окна: камера на высоте этажа смотрит наружу ---------- */
+  /* ---------- Что рядом: места из данных карты (магазины, школы, детсады, остановки…) ---------- */
+  const POI_CATS = [
+    { id: 'shop', name: 'Магазины', icon: '🛒', test: (c, s) => c === 'grocery' || (c === 'shop' && /convenience|supermarket|mall|department/.test(s || '')) },
+    { id: 'kinder', name: 'Детские сады', icon: '🧸', test: (c, s) => s === 'kindergarten' },
+    { id: 'school', name: 'Школы', icon: '🏫', test: (c, s) => c === 'school' && s !== 'kindergarten' },
+    { id: 'college', name: 'Вузы и колледжи', icon: '🎓', test: (c) => c === 'college' },
+    { id: 'med', name: 'Больницы и клиники', icon: '🏥', test: (c) => c === 'hospital' || c === 'doctors' || c === 'dentist' },
+    { id: 'pharm', name: 'Аптеки', icon: '💊', test: (c) => c === 'pharmacy' },
+    { id: 'bus', name: 'Остановки', icon: '🚌', test: (c) => c === 'bus' },
+    { id: 'park', name: 'Парки и площадки', icon: '🌳', test: (c) => c === 'park' || c === 'playground' || c === 'garden' },
+    { id: 'sport', name: 'Спорт', icon: '⚽', test: (c, s) => c === 'sports_centre' || c === 'swimming_pool' || (c === 'pitch' && !!s) },
+    { id: 'food', name: 'Кафе и рестораны', icon: '☕', test: (c) => c === 'cafe' || c === 'restaurant' || c === 'fast_food' || c === 'bakery' },
+    { id: 'bank', name: 'Банки', icon: '🏦', test: (c) => c === 'bank' || c === 'atm' },
+    { id: 'mosque', name: 'Мечети', icon: '🕌', test: (c, s) => c === 'place_of_worship' && s === 'muslim' },
+  ];
+  const distM = (a, b) => { const R = 6371000, r = Math.PI / 180, dLat = (b[1] - a[1]) * r, dLon = (b[0] - a[0]) * r, s = Math.sin(dLat / 2) ** 2 + Math.cos(a[1] * r) * Math.cos(b[1] * r) * Math.sin(dLon / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(s)); };
+  const bearingTo = (a, b) => { const r = Math.PI / 180, y = Math.sin((b[0] - a[0]) * r) * Math.cos(b[1] * r), x = Math.cos(a[1] * r) * Math.sin(b[1] * r) - Math.sin(a[1] * r) * Math.cos(b[1] * r) * Math.cos((b[0] - a[0]) * r); return (Math.atan2(y, x) / r + 360) % 360; };
+  const fmtDist = (m) => (m < 1000 ? `${Math.round(m / 10) * 10} м` : `${(m / 1000).toFixed(1).replace('.', ',')} км`);
+  const walkMin = (m) => Math.max(1, Math.round(m * 1.25 / 80)); // ~80 м/мин, улицы не по прямой
+  function nearbyPlaces(center, radius) {
+    if (!map.getSource('openmaptiles')) return [];
+    const seen = new Map();
+    for (const f of map.querySourceFeatures('openmaptiles', { sourceLayer: 'poi' })) {
+      const pr = f.properties, cat = POI_CATS.find((c) => c.test(pr.class, pr.subclass));
+      if (!cat || f.geometry.type !== 'Point') continue;
+      const ll = f.geometry.coordinates, d = distM(center, ll);
+      if (d > radius) continue;
+      const name = pr.name || (cat.id === 'bus' ? 'Остановка' : '');
+      if (!name) continue;
+      const key = cat.id + '|' + name;
+      const old = seen.get(key);
+      if (!old || d < old.d) seen.set(key, { cat, name, ll, d });
+    }
+    // одно и то же место бывает записано дважды (на русском и латиницей) — убираем дубли в радиусе 60 м
+    const out = [];
+    for (const x of [...seen.values()].sort((a, b) => a.d - b.d)) if (!out.some((y) => y.cat === x.cat && distM(y.ll, x.ll) < 60)) out.push(x);
+    return out;
+  }
+  const placeMarkers = [];
+  function clearPlaceMarkers() { placeMarkers.splice(0).forEach((m) => m.remove()); }
+  function addPlaceMarker(pl, extra) {
+    const el = document.createElement('div'); el.className = 'place-mk';
+    el.innerHTML = `<span>${pl.cat.icon}</span><b>${esc(pl.name)}</b>${extra ? `<i>${extra}</i>` : ''}`;
+    const mk = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat(pl.ll).addTo(map);
+    placeMarkers.push(mk); return mk;
+  }
+  // Раздел «Что рядом» на странице ЖК
+  const nearbyHtml = () => `<div class="nearby"><div class="section-title" style="margin-top:0"><h3>📍 Что рядом</h3><button class="link-btn" id="nbShow">Показать на карте</button></div><div id="nbBody" class="small">Собираю места рядом…</div></div>`;
+  function bindNearby(p) {
+    const center = toLngLat(p, centroid(p.plot));
+    let tries = 0, shown = false;
+    const draw = () => {
+      if (!$('#nbBody') || state.project !== p || state.block) return;
+      const list = nearbyPlaces(center, 1500);
+      if (list.length < 3 && tries++ < 8) { setTimeout(draw, 900); return; }
+      const groups = POI_CATS.map((c) => ({ c, items: list.filter((x) => x.cat === c).slice(0, 3) })).filter((g) => g.items.length);
+      $('#nbBody').innerHTML = groups.length ? groups.map((g) => `<div class="nb-group"><div class="nb-cat">${g.c.icon} ${g.c.name}</div>${g.items.map((x) => `<button class="nb-item" data-ll="${x.ll.join(',')}" data-name="${esc(x.name)}" data-cat="${g.c.id}"><span>${esc(x.name)}</span><span class="nb-d">${fmtDist(x.d)} · ${walkMin(x.d)} мин</span></button>`).join('')}</div>`).join('') + '<p class="small" style="margin-top:8px">По данным OpenStreetMap, расстояние — по прямой, время — пешком примерно.</p>'
+        : 'Данных о местах рядом пока нет.';
+      panelBody.querySelectorAll('.nb-item').forEach((btn) => btn.onclick = () => {
+        const ll = btn.dataset.ll.split(',').map(Number), cat = POI_CATS.find((c) => c.id === btn.dataset.cat);
+        clearPlaceMarkers(); addPlaceMarker({ cat, name: btn.dataset.name, ll }, fmtDist(distM(center, ll))); shown = false;
+        const b = new maplibregl.LngLatBounds(center, center); b.extend(ll);
+        map.fitBounds(b, { padding: { ...camPad(), top: 120, bottom: 120, right: 120 }, maxZoom: 17, pitch: 50, duration: 1400 });
+      });
+    };
+    setTimeout(draw, 1500);
+    $('#nbShow').onclick = () => {
+      shown = !shown; clearPlaceMarkers();
+      if (shown) { const list = nearbyPlaces(center, 1200); POI_CATS.forEach((c) => list.filter((x) => x.cat === c).slice(0, 4).forEach((x) => addPlaceMarker(x, fmtDist(x.d)))); flyProject(p); }
+      $('#nbShow').textContent = shown ? 'Скрыть с карты' : 'Показать на карте';
+    };
+  }
+
+  /* ---------- Вид из окна: камера ставится точно на высоту этажа и смотрит наружу ---------- */
   const SIDES = { N: 'север', E: 'восток', S: 'юг', W: 'запад' };
   const sideOf = (az) => ['N', 'E', 'S', 'W'][Math.round((((az % 360) + 360) % 360) / 90) % 4];
   let viewMode = null;
-  function openWindowView(p, b, f, a) {
-    const wins = aptWindows(p, b, a);
-    if (!wins.length) { openModal('<h2>Вид из окна</h2><p class="muted">Не удалось определить окна этой квартиры.</p>'); return; }
+  // Своя постановка камеры: MapLibre ставит камеру по центру и зуму, поэтому высоту считаем сами
+  function placeCamera(eyeLL, heightM, bearing, pitch, animate) {
+    const t = pitch * Math.PI / 180, ground = heightM * Math.tan(t), slant = heightM / Math.cos(t);
+    const r = bearing * Math.PI / 180, mLat = 111132, mLng = mLat * Math.cos(eyeLL[1] * Math.PI / 180);
+    const center = [eyeLL[0] + Math.sin(r) * ground / mLng, eyeLL[1] + Math.cos(r) * ground / mLat];
+    const hPx = map.getCanvas().clientHeight, camPx = 0.5 / Math.tan((map.transform.fov || 36.87) * Math.PI / 360) * hPx;
+    const mpp = slant / camPx, zoom = Math.log2(2 * Math.PI * 6378137 * Math.cos(center[1] * Math.PI / 180) / (512 * mpp));
+    const opts = { center, zoom, bearing, pitch, padding: { top: 0, bottom: 0, left: 0, right: 0 } };
+    if (animate) map.flyTo({ ...opts, duration: 1800, essential: true }); else map.jumpTo(opts);
+  }
+  function windowGeom(p, b, a) {
+    const wins = aptWindows(p, b, a); if (!wins.length) return null;
     let vx = 0, vy = 0, cx = 0, cy = 0, L = 0;
     for (const w of wins) { vx += w.n[0] * w.len; vy += w.n[1] * w.len; cx += w.c[0] * w.len; cy += w.c[1] * w.len; L += w.len; }
     const nl = Math.hypot(vx, vy) || 1, n = [vx / nl, vy / nl], c = [cx / L, cy / L];
-    const from = [c[0] + n[0] * 2.5, c[1] + n[1] * 2.5], to = [c[0] + n[0] * 400, c[1] + n[1] * 400];
-    const alt = floorBase(p, f) + 1.6, az = (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360;
-    viewMode = { p, b, f, a };
+    return { eye: toLngLat(p, [c[0] + n[0] * 2.5, c[1] + n[1] * 2.5]), az: (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360 };
+  }
+  function showViewPlaces(g) {
+    clearPlaceMarkers();
+    const list = nearbyPlaces(g.eye, 1500).filter((x) => angDiff(bearingTo(g.eye, x.ll), g.az) < 55);
+    const perCat = {};
+    list.filter((x) => (perCat[x.cat.id] = (perCat[x.cat.id] || 0) + 1) <= 3).slice(0, 18).forEach((x) => addPlaceMarker(x, fmtDist(x.d)));
+    return list.length;
+  }
+  function openWindowView(p, b, f, a) {
+    const g = windowGeom(p, b, a);
+    if (!g) { openModal('<h2>Вид из окна</h2><p class="muted">Не удалось определить окна этой квартиры.</p>'); return; }
+    viewMode = { p, b, f, a, g };
     map.setMaxPitch(85);
-    if (map.calculateCameraOptionsFromTo) {
-      const cam = map.calculateCameraOptionsFromTo(maplibregl.LngLat.convert(toLngLat(p, from)), alt, maplibregl.LngLat.convert(toLngLat(p, to)), Math.max(0, alt - 30));
-      map.flyTo({ ...cam, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 1800, essential: true });
-    } else {
-      map.flyTo({ center: toLngLat(p, [c[0] + n[0] * 60, c[1] + n[1] * 60]), zoom: 19, pitch: 84, bearing: az, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 1800 });
-    }
     document.body.classList.add('window-view');
-    const photos = ((mediaCache[p.id] || {}).media || []).filter((m) => m.type === 'view' && (!m.block || m.block === b.id) && (!m.floorFrom || f >= m.floorFrom) && (!m.floorTo || f <= m.floorTo) && (!m.side || m.side === sideOf(az)));
+    try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95); map.setPaintProperty('building-3d', 'fill-extrusion-color', '#c9c3b8'); } catch (e) {}
+    placeCamera(g.eye, floorBase(p, f) + 1.6, g.az, 80, true);
+    map.once('moveend', () => { if (viewMode) { const n = showViewPlaces(g); const t = $('#wbPlaces'); if (t) t.textContent = n ? `Подписаны места рядом в этом направлении: ${Math.min(n, 18)}` : 'В этом направлении рядом нет отмеченных мест'; } });
+    renderWinBar();
+  }
+  function renderWinBar() {
+    const { p, b, f, a, g } = viewMode;
+    const photos = ((mediaCache[p.id] || {}).media || []).filter((m) => m.type === 'view' && (!m.block || m.block === b.id) && (!m.floorFrom || f >= m.floorFrom) && (!m.floorTo || f <= m.floorTo) && (!m.side || m.side === sideOf(g.az)));
     let bar = $('#winBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'winBar'; document.body.append(bar); }
-    bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(az)]}</span></div>
-      <div class="wb-btns"><button data-wv="up" ${f >= b.floors ? 'disabled' : ''}>▲ этаж выше</button><button data-wv="down" ${f <= p.firstResidentialFloor ? 'disabled' : ''}>▼ ниже</button>
-      ${photos.length ? `<button data-wv="photo" class="hl">📷 Фото с дрона (${photos.length})</button>` : ''}<button data-wv="exit" class="x">✕ Выйти</button></div>
-      <p>Соседние дома на карте — по данным OpenStreetMap, высоты примерные.${photos.length ? '' : ' Настоящее фото с этой высоты появится, когда его загрузит менеджер.'}</p>`;
+    const h = Math.round(floorBase(p, f) + 1.6);
+    bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(g.az)]}</span></div>
+      <div class="wb-floor"><button data-wv="down" ${f <= p.firstResidentialFloor ? 'disabled' : ''} aria-label="Этаж ниже">▼</button>
+        <input type="range" id="wbF" min="${p.firstResidentialFloor}" max="${b.floors}" value="${f}" aria-label="Этаж">
+        <button data-wv="up" ${f >= b.floors ? 'disabled' : ''} aria-label="Этаж выше">▲</button>
+        <b id="wbLbl">${f} этаж · ${h} м над землёй</b></div>
+      <div class="wb-btns">${photos.length ? `<button data-wv="photo" class="hl">📷 Фото с дрона (${photos.length})</button>` : ''}<button data-wv="exit" class="x">✕ Выйти</button></div>
+      <p><span id="wbPlaces"></span> Дома и места — по данным OpenStreetMap, высоты домов примерные.${photos.length ? '' : ' Настоящее фото с этой высоты появится, когда его загрузит менеджер.'}</p>`;
+    const setFloor = (nf, animate) => {
+      nf = Math.max(p.firstResidentialFloor, Math.min(b.floors, nf));
+      viewMode.f = nf;
+      placeCamera(g.eye, floorBase(p, nf) + 1.6, g.az, 80, animate);
+      $('#wbLbl').textContent = `${nf} этаж · ${Math.round(floorBase(p, nf) + 1.6)} м над землёй`;
+      $('#wbF').value = nf;
+      bar.querySelector('[data-wv=down]').disabled = nf <= p.firstResidentialFloor;
+      bar.querySelector('[data-wv=up]').disabled = nf >= b.floors;
+    };
+    $('#wbF').oninput = (e) => setFloor(+e.target.value, false);
     bar.querySelectorAll('[data-wv]').forEach((btn) => btn.onclick = () => {
       const k = btn.dataset.wv;
       if (k === 'exit') return closeWindowView(true);
       if (k === 'photo') return openModal(photos.map((m) => `<figure class="wv-photo"><img src="${m.url}" alt=""><figcaption>${esc(m.caption || 'Вид из окна')} · ${esc(m.date)}</figcaption></figure>`).join(''), true);
-      const nf = f + (k === 'up' ? 1 : -1);
-      viewMode = null;
-      go(`#/${p.id}/${b.id}/${nf}/${a.n}`);
-      setTimeout(() => openWindowView(p, b, nf, a), 60);
+      setFloor(viewMode.f + (k === 'up' ? 1 : -1), true);
     });
   }
   function closeWindowView(fly) {
     if (!viewMode) return;
-    const { p, b, a } = viewMode; viewMode = null;
+    const { p, b, f, a } = viewMode; viewMode = null;
     document.body.classList.remove('window-view');
     const bar = $('#winBar'); if (bar) bar.remove();
-    if (fly && state.apt) flyApt(p, b, a);
-    setTimeout(() => { if (!viewMode) map.setMaxPitch(75); }, 1700);
+    clearPlaceMarkers();
+    try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', origBuildingPaint.op); map.setPaintProperty('building-3d', 'fill-extrusion-color', origBuildingPaint.col); } catch (e) {}
+    // если этаж меняли — открываем ту же квартиру на новом этаже
+    if (fly) { if (state.floor !== f) go(`#/${p.id}/${b.id}/${f}/${a.n}`); setTimeout(() => { if (state.apt) flyApt(p, b, a); }, 60); }
+    setTimeout(() => { if (!viewMode) map.setMaxPitch(75); }, 1900);
   }
+  const origBuildingPaint = { op: 1, col: '#e0dcd5' };
+  map.on('load', () => { try { origBuildingPaint.op = map.getPaintProperty('building-3d', 'fill-extrusion-opacity') ?? 1; origBuildingPaint.col = map.getPaintProperty('building-3d', 'fill-extrusion-color'); } catch (e) {} });
 
   /* ---------- Подсветка на 3D квартир, подходящих по бюджету ---------- */
   function updateMatches(tries = 0) {
