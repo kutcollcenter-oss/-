@@ -12,8 +12,11 @@
   const somShort = (v) => v >= 1e6 ? (v / 1e6).toLocaleString('ru-RU', { maximumFractionDigits: 2 }) + ' млн ' + CFG.currency : som(v);
   const area = (v) => v.toFixed(2).replace('.', ',') + ' м²';
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  const roomsLabel = (a) => a.euro ? `Евро-${a.rooms + 1}` : `${a.rooms}-комнатная`;
-  const roomsShort = (a) => a.euro ? `евро-${a.rooms + 1}` : `${a.rooms}-комн.`;
+  const roomsLabel = (a) => `${a.rooms}-комнатная`;
+  const roomsShort = (a) => `${a.rooms}-комн.`;
+  // «Евро» — только пояснение: кухня объединена с гостиной
+  const euroNote = (a) => a.euro ? 'евро-планировка: кухня-гостиная' : '';
+  const euroTag = (a) => a.euro ? ' <span class="euro">евро</span>' : '';
   const monthsLabel = (m) => `${m} мес.`;
   const blockName = (p, b) => `Блок ${b.id}`;
 
@@ -205,11 +208,26 @@
     const widePlan = b.plan.w > b.plan.h * 1.15;
     return vertical && widePlan ? 270 : 0; // план «лёжа» на вытянутом с севера на юг блоке
   }
-  function aptFacing(p, b, a) {
-    const [cx, cy] = centroid(a.poly);
-    const r = (cx / b.plan.w - 0.5), u = -(cy / b.plan.h - 0.5);
-    return (planUp(p, b) + azim(r, u)) % 360;
+  // Контур квартиры в метрах участка: план этажа «накладывается» на пятно блока с учётом поворота planUp
+  function aptLocalPoly(p, b, a) {
+    const all = b.plan.apts.flatMap((x) => x.poly);
+    const px0 = Math.min(...all.map((q) => q[0])), px1 = Math.max(...all.map((q) => q[0]));
+    const py0 = Math.min(...all.map((q) => q[1])), py1 = Math.max(...all.map((q) => q[1]));
+    const xs = b.fp.map((q) => q[0]), ys = b.fp.map((q) => q[1]);
+    const W = Math.max(...xs) - Math.min(...xs), H = Math.max(...ys) - Math.min(...ys);
+    const C = [(Math.max(...xs) + Math.min(...xs)) / 2, (Math.max(...ys) + Math.min(...ys)) / 2];
+    const th = planUp(p, b) / DEG, Rv = [Math.cos(th), -Math.sin(th)], Uv = [Math.sin(th), Math.cos(th)];
+    const hR = (Math.abs(Rv[0]) * W + Math.abs(Rv[1]) * H) / 2, hU = (Math.abs(Uv[0]) * W + Math.abs(Uv[1]) * H) / 2;
+    return a.poly.map(([x, y]) => {
+      const u = (x - px0) / (px1 - px0) - 0.5, t = 0.5 - (y - py0) / (py1 - py0);
+      return [C[0] + 2 * hR * u * Rv[0] + 2 * hU * t * Uv[0], C[1] + 2 * hR * u * Rv[1] + 2 * hU * t * Uv[1]];
+    });
   }
+  function aptFacing(p, b, a) {
+    const c = centroid(aptLocalPoly(p, b, a)), bc = centroid(b.fp);
+    return azim(c[0] - bc[0], c[1] - bc[1]);
+  }
+
   function flyAt(p, b, localAz, extra = {}) {
     // камера стоит со стороны localAz и смотрит на блок
     const bearing = toMapBearing(p, localAz + 180 + 18);
@@ -236,6 +254,7 @@
     state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
     selectFloor3D(state.project, state.block, state.floor);
+    if (engine) engine.highlightApt(state.apt ? p : null, b, state.floor, state.apt ? aptLocalPoly(p, b, state.apt) : null);
     updateMarkerVisibility();
     document.documentElement.style.setProperty('--brand', p ? p.brandColor : '#14161a');
 
@@ -329,7 +348,7 @@
       h += `<div class="rcard">
         <div class="rhead" data-go="#/${p.id}"><img src="${p.renders[0]}" alt=""><div><h3>${esc(p.name)}</h3><div class="small">${districtName(p.district)} р-н · сдача ${esc(p.completion)}</div><div class="small"><b style="color:var(--free)">${r.total} ${plural(r.total, 'вариант', 'варианта', 'вариантов')}</b> по вашему бюджету</div></div></div>
         ${r.layouts.slice(0, 4).map((g) => `<div class="rrow" data-go="#/${p.id}/${g.b.id}/${g.f}/${g.a.n}">
-          <div><b>${roomsLabel(g.a)}</b> · ${area(g.a.area)}<div class="small">${som(g.price)} · свободно ${g.count}</div></div>
+          <div><b>${roomsLabel(g.a)}</b>${euroTag(g.a)} · ${area(g.a.area)}<div class="small">${som(g.price)} · свободно ${g.count}</div></div>
           <div class="rpay"><b>${som(g.monthly)}</b><span>в месяц</span></div></div>`).join('')}
         ${r.layouts.length > 4 ? `<button class="link-btn" data-go="#/${p.id}" style="margin:8px 0 0">Ещё ${r.layouts.length - 4} ${plural(r.layouts.length - 4, 'планировка', 'планировки', 'планировок')} →</button>` : ''}
       </div>`;
@@ -465,7 +484,7 @@
     root.querySelectorAll('.apt-poly').forEach((poly) => {
       const a = b.plan.apts.find((x) => x.n === +poly.dataset.n);
       const st = status(p, b, f, a);
-      poly.addEventListener('mousemove', (e) => showTip(e, `<b>Кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}</b><br>${area(a.area)} · ${st === 'free' ? som(aptPrice(p, b, a)) : ST_LABEL[st]}`));
+      poly.addEventListener('mousemove', (e) => showTip(e, `<b>Кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}</b>${a.euro ? '<br><i>' + euroNote(a) + '</i>' : ''}<br>${area(a.area)} · ${st === 'free' ? som(aptPrice(p, b, a)) : ST_LABEL[st]}`));
       poly.addEventListener('mouseleave', hideTip);
       poly.addEventListener('click', () => { hideTip(); if (st !== 'sold') onPick(a); });
     });
@@ -489,7 +508,7 @@
       <div class="apt-list">${apts.map((a) => { const st = status(p, b, f, a), pr = aptPrice(p, b, a); return `
         <div class="apt-row ${st}" ${st !== 'sold' ? `data-go="#/${p.id}/${b.id}/${f}/${a.n}"` : ''}>
           <b>№${aptNumber(p, b, f, a)}</b>
-          <div>${roomsLabel(a)} · ${area(a.area)}<div class="small">${st === 'sold' ? '' : som(pr) + ' · ' + som(monthly(p, pr, inst.downPayment, inst.months)) + '/мес'}</div></div>
+          <div>${roomsLabel(a)}${euroTag(a)} · ${area(a.area)}<div class="small">${st === 'sold' ? '' : som(pr) + ' · ' + som(monthly(p, pr, inst.downPayment, inst.months)) + '/мес'}</div></div>
           <span class="st ${st}">${ST_LABEL[st]}</span></div>`; }).join('')}</div>
       <p class="small" style="margin-top:12px">План типового этажа. Площади — по рабочему проекту.</p>`;
     bindPlan(panelBody, p, b, f, (a) => go(`#/${p.id}/${b.id}/${f}/${a.n}`));
@@ -511,7 +530,7 @@
     panelBody.innerHTML = `
       <div class="crumbs">${backBtn(`#/${p.id}/${b.id}/${f}`)}<span>${esc(p.name)} / ${blockName(p, b)} / ${f} эт.</span> / <b>Кв. ${aptNumber(p, b, f, a)}</b></div>
       <div class="apt-head">
-        <div><h1>${roomsLabel(a)}</h1><p class="muted" style="margin:4px 0 0">${area(a.area)} · ${f} этаж из ${b.floors} · ${blockName(p, b).toLowerCase()}</p></div>
+        <div><h1>${roomsLabel(a)}</h1><p class="muted" style="margin:4px 0 0">${area(a.area)} · ${f} этаж из ${b.floors} · ${blockName(p, b).toLowerCase()}</p>${a.euro ? `<p class="small" style="margin:4px 0 0">💬 ${euroNote(a)}</p>` : ''}</div>
         <span class="st ${st}" style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap">${ST_LABEL[st]}</span>
       </div>
       <div style="margin:14px 0 4px" class="price">${som(price)}</div>

@@ -434,13 +434,25 @@
       mesh.position.z = api.floorBase(p, f) + 0.05;
       mesh.visible = true;
     }
-    return { scene, root, pick, placeHighlight, hoverMesh, selMesh };
+    // Мигающие окна выбранной квартиры: тёплое «светящееся» стекло поверх фасада
+    const aptMat = new THREE.MeshBasicMaterial({ color: 0xffd76a, transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide });
+    const aptMesh = new THREE.Mesh(new THREE.BufferGeometry(), aptMat);
+    aptMesh.visible = false; aptMesh.renderOrder = 12;
+    root.add(aptMesh);
+    function placeApt(localPoly, f) {
+      if (!localPoly) { aptMesh.visible = false; selMat.opacity = 0.78; return; }
+      aptMesh.geometry.dispose();
+      aptMesh.geometry = new THREE.ExtrudeGeometry(shapeOf(offsetPoly(localPoly, 0.55)), { depth: p.floorHeight - 0.5, bevelEnabled: false });
+      aptMesh.position.z = api.floorBase(p, f) + 0.25;
+      aptMesh.visible = true; selMat.opacity = 0.35;
+    }
+    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat };
   }
 
   /* ---------- Слой MapLibre ---------- */
   let renderer = null;
   function init(map, projects, api) {
-    const layers = {};
+    const layers = {}; const m_ = map;
     for (const p of projects) {
       const mc = maplibregl.MercatorCoordinate.fromLngLat(p.origin, 0);
       const s = mc.meterInMercatorCoordinateUnits();
@@ -461,6 +473,10 @@
           const l = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z).scale(new THREE.Vector3(s, -s, s));
           camera.projectionMatrix = mm.multiply(l);
           L.inv = camera.projectionMatrix.clone().invert();
+          if (L.built.aptMesh.visible) { // мигание ~1,4 раза в секунду
+            L.built.aptMat.opacity = 0.2 + 0.75 * (0.5 + 0.5 * Math.sin(performance.now() / 1000 * Math.PI * 2.8));
+            m_.triggerRepaint();
+          }
           renderer.resetState();
           renderer.render(L.built.scene, camera);
         },
@@ -498,7 +514,11 @@
       }
       map.triggerRepaint();
     }
-    return { pick, highlight };
+    function highlightApt(p, b, f, localPoly) {
+      for (const id in layers) { const L = layers[id]; if (L.built) L.built.placeApt(p && p.id === id ? localPoly : null, f); }
+      map.triggerRepaint();
+    }
+    return { pick, highlight, highlightApt };
   }
 
   window.Yurta3D = { init };

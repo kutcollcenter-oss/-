@@ -213,3 +213,4 @@ h3 { font-size: 15px; font-weight: 700; }
 .b-bad { font-size: 13px; color: var(--ink-2); margin: 4px 0 10px; }
 .b-bad > div[data-go] { padding: 4px 0; cursor: pointer; }
 .pmarker.dim .pill, .pmarker.dim .stem, .pmarker.dim .dot { opacity: .4; filter: grayscale(1); }
+.euro { display: inline-block; font-size: 10px; font-weight: 700; color: var(--ink-3); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; text-transform: lowercase; }
