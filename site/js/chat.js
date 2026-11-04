@@ -150,6 +150,14 @@
   const loginBtn = h('button', 'staff-login');
   loginBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span>Сотрудникам</span>';
   $('.topbar').append(loginBtn);
+  // Кнопка скрыта от гостей. Открыть: ссылка сайта с ?staff (браузер запомнит), выйти из режима: ?staff=off
+  let staffDevice = false;
+  try {
+    const q = new URLSearchParams(location.search).get('staff');
+    if (q === 'off') localStorage.removeItem('yurta_staff_device'); else if (q !== null) localStorage.setItem('yurta_staff_device', '1');
+    staffDevice = localStorage.getItem('yurta_staff_device') === '1';
+  } catch (e) {}
+  loginBtn.hidden = !staffDevice;
 
   const overlay = h('div', 'yc-modal'); overlay.hidden = true;
   overlay.innerHTML = '<div class="yc-backdrop"></div><div class="yc-card"></div>';
@@ -216,6 +224,8 @@
     me = user;
     document.body.classList.add('is-staff');
     disconnectGuest(); gBtn.hidden = true; gPanel.hidden = true;
+    loginBtn.hidden = false;
+    try { localStorage.setItem('yurta_staff_device', '1'); } catch (e) {}
     loginBtn.querySelector('span').textContent = 'Пульт';
     $('.me-name', dock).textContent = me.name + (me.role === 'admin' ? ' · админ' : '');
     $('.adm', dock).hidden = me.role !== 'admin';

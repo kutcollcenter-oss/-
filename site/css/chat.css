@@ -117,3 +117,4 @@
   .staff-login span { display: none; }
   .staff-dock { top: 0; right: 0; bottom: 0; left: 0; width: auto; border-radius: 0; }
 }
+.staff-login[hidden] { display: none; }

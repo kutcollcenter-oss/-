@@ -373,7 +373,7 @@ window.YURTA_PROJECTS = [
       { id: '6', floors: 16, fp: notched(-17.9, -55.3, 24.8, 38.9, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
       { id: '7', floors: 16, fp: notched(-14.9, -15.1, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
       { id: '8', floors: 16, fp: notched(-12.4, 24.8, 24.8, 36.5, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
-      { id: '9', floors: 16, fp: rect(-10.4, 68.7, 12.4, 93.5), plan: PLUS_PLAN_2 },
+      { id: '9', floors: 16, fp: rect(-10.4, 68.7, 12.4, 93.5), plan: PLUS_PLAN_2, planUp: 270 },
     ],
   },
 ];

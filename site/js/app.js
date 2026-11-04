@@ -368,6 +368,45 @@
   }
   const budgetDone = () => state.budget.down && state.budget.monthly;
 
+  /* Математика подбора.
+     Квартира подходит, если взнос D ≥ минимального взноса ЖК и (цена − D) / срок ≤ платёж M.
+     Значит минимальный платёж при взносе D = min по свободным квартирам ( max(0, цена − D) / срок ).
+     Кнопки показываем только для сумм, при которых есть хотя бы одна квартира. */
+  function freePrices(p) {
+    if (p._fp) return p._fp;
+    const out = [];
+    for (const b of p.blocks) for (const a of b.plan.apts) {
+      if (floorsOf(p, b).some((f) => status(p, b, f, a) === 'free')) out.push(aptPrice(p, b, a));
+    }
+    return (p._fp = out.sort((x, y) => x - y));
+  }
+  const minDownAll = () => Math.min(...visibleProjects().map((p) => p.installment.downPayment));
+  function monthlyRange(D) {
+    let lo = Infinity, hi = 0;
+    for (const p of visibleProjects()) {
+      if (D < p.installment.downPayment) continue;
+      const pr = freePrices(p); if (!pr.length) continue;
+      const m = (x) => Math.max(0, x - D) / p.installment.months;
+      lo = Math.min(lo, m(pr[0])); hi = Math.max(hi, m(pr[pr.length - 1]));
+    }
+    return lo === Infinity ? null : [lo, hi];
+  }
+  const roundUp = (v, step) => Math.ceil(v / step) * step;
+  const niceStep = (v) => (v < 50000 ? 5000 : v < 200000 ? 10000 : 50000);
+  function downOptions() {
+    const lo = roundUp(minDownAll(), 10000);
+    return [...new Set([lo, ...DOWN_PRESETS.filter((v) => v > lo * 1.15)])].slice(0, 6);
+  }
+  // 5 ровных сумм: от «минимально нужного» до «хватает на самую дорогую»
+  function monthlyOptions(D) {
+    const r = monthlyRange(D); if (!r) return [];
+    const [lo, hi] = r, start = Math.max(1000, roundUp(lo, 1000));
+    if (hi <= start) return [start];
+    const out = [start];
+    for (let i = 1; i <= 4; i++) { const v = lo + (hi - lo) * i / 4; out.push(roundUp(v, niceStep(v))); }
+    return out.filter((v, i, a) => i === 0 || v > a[i - 1]);
+  }
+
   function budgetHtml() {
     const B = state.budget;
     const chips = (vals, cur, attr) => vals.map((v) => `<button class="bchip ${cur === v ? 'on' : ''}" data-${attr}="${v}">до ${short(v)}</button>`).join('');
@@ -375,12 +414,12 @@
     let h = `<div class="budget"><div class="b-head"><b>Подобрать квартиру по бюджету</b>${B.down ? '<button class="link-btn" id="bReset">Сбросить</button>' : ''}</div>`;
     if (!B.down) {
       h += `<div class="b-q"><span class="b-n">1</span>Сколько можете внести сразу — первоначальный взнос?</div>
-        <div class="bchips">${chips(DOWN_PRESETS, null, 'down')}</div>${custom('down', 'Своя сумма, сом')}`;
+        <div class="bchips">${chips(downOptions(), null, 'down')}</div>${custom('down', `Своя сумма, от ${short(minDownAll())}`)}<div class="small" style="margin-top:6px">Минимальный взнос сейчас — ${som(minDownAll())}</div>`;
     } else {
       h += `<button class="b-done" data-edit="down"><span class="b-n ok">✓</span>Взнос: <b>до ${som(B.down)}</b><span>изменить</span></button>`;
       if (!B.monthly) {
         h += `<div class="b-q"><span class="b-n">2</span>Сколько готовы платить в месяц?</div>
-          <div class="bchips">${chips(MONTHLY_PRESETS, null, 'monthly')}</div>${custom('monthly', 'Своя сумма в месяц, сом')}`;
+          ${(() => { const o = monthlyOptions(B.down); return o.length ? `<div class="bchips">${chips(o, null, 'monthly')}</div>${custom('monthly', `Своя сумма, от ${short(o[0])}`)}<div class="small" style="margin-top:6px">При таком взносе платёж — от ${som(o[0])} в месяц</div>` : `<div class="small">С таким взносом пока нет вариантов. Минимальный взнос — ${som(minDownAll())}.</div>`; })()}`;
       } else {
         h += `<button class="b-done" data-edit="monthly"><span class="b-n ok">✓</span>В месяц: <b>до ${som(B.monthly)}</b><span>изменить</span></button>`;
       }
@@ -411,6 +450,10 @@
 
   function renderList() {
     const list = visibleProjects();
+    if (budgetDone() && !list.some((p) => budgetMatch(p, state.budget.down, state.budget.monthly).ok)) {
+      if (!monthlyOptions(state.budget.down).length) state.budget.down = null;
+      state.budget.monthly = null; saveBudget();
+    }
     panelBody.innerHTML = `
       <h1 class="h-home">Квартиры в рассрочку на карте Бишкека</h1>
       ${budgetHtml()}
@@ -423,7 +466,12 @@
     panelBody.querySelectorAll('.bcustom').forEach((f) => {
       const inp = f.querySelector('input');
       inp.addEventListener('input', () => { const d = inp.value.replace(/\D/g, ''); inp.value = d ? (+d).toLocaleString('ru-RU') : ''; });
-      f.onsubmit = (e) => { e.preventDefault(); const v = +inp.value.replace(/\D/g, ''); if (v > 0) set(f.dataset.for, v); };
+      f.onsubmit = (e) => {
+        e.preventDefault(); const v = +inp.value.replace(/\D/g, ''); if (!(v > 0)) return;
+        const min = f.dataset.for === 'down' ? minDownAll() : (monthlyOptions(state.budget.down)[0] || 0);
+        if (v < min) { inp.value = ''; inp.placeholder = `Минимум ${short(min)} — дешевле вариантов нет`; inp.focus(); return; }
+        set(f.dataset.for, v);
+      };
     });
     panelBody.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
       if (b.dataset.edit === 'down') state.budget = { down: null, monthly: null }; else state.budget.monthly = null;
