@@ -370,6 +370,162 @@
     return roof;
   }
 
+  const rct = (x0, y0, x1, y1) => [[x0, y0], [x1, y0], [x1, y1], [x0, y1]];
+  /* ---------- Благоустройство двора: площадки, покрытия, клумбы (по генпланам и рендерам) ---------- */
+  const YM = {};
+  const ymat = (c) => YM[c] || (YM[c] = lambert({ color: c }));
+  function tileTex(kind) {
+    const key = 'tex_' + kind; if (YM[key]) return YM[key];
+    const t = canvasTex(256, 256, (g, W, H) => {
+      const r = rng(kind.length * 97);
+      if (kind === 'pave') { // брусчатка
+        g.fillStyle = '#b9b6b0'; g.fillRect(0, 0, W, H);
+        for (let y = 0; y < H; y += 16) for (let x = (y / 16) % 2 ? -16 : 0; x < W; x += 32) {
+          const k = 168 + r() * 26; g.fillStyle = `rgb(${k},${k - 2},${k - 6})`; g.fillRect(x + 1, y + 1, 30, 14);
+        }
+      } else if (kind === 'deck') { // деревянный настил
+        g.fillStyle = '#9c8466'; g.fillRect(0, 0, W, H);
+        for (let y = 0; y < H; y += 12) { const k = r() * 22; g.fillStyle = `rgb(${160 + k},${130 + k},${96 + k})`; g.fillRect(0, y + 1, W, 10); }
+      } else if (kind === 'lawn') {
+        g.fillStyle = '#86b765'; g.fillRect(0, 0, W, H);
+        for (let i = 0; i < 900; i++) { const k = r(); g.fillStyle = k < 0.5 ? 'rgba(60,110,40,.25)' : 'rgba(170,210,120,.25)'; g.fillRect(r() * W, r() * H, 3, 3); }
+      } else if (kind === 'asphalt') {
+        g.fillStyle = '#5a5e63'; g.fillRect(0, 0, W, H);
+        for (let i = 0; i < 1500; i++) { g.fillStyle = `rgba(255,255,255,${r() * 0.06})`; g.fillRect(r() * W, r() * H, 2, 2); }
+      }
+    });
+    const size = { pave: 4, deck: 3, lawn: 8, asphalt: 6 }[kind];
+    t.repeat.set(1 / size, 1 / size);
+    return (YM[key] = lambert({ map: t }));
+  }
+  function roundRect(x0, y0, x1, y1, rad) {
+    const s = new THREE.Shape(), r = Math.min(rad, (x1 - x0) / 2, (y1 - y0) / 2);
+    s.moveTo(x0 + r, y0); s.lineTo(x1 - r, y0); s.quadraticCurveTo(x1, y0, x1, y0 + r); s.lineTo(x1, y1 - r); s.quadraticCurveTo(x1, y1, x1 - r, y1);
+    s.lineTo(x0 + r, y1); s.quadraticCurveTo(x0, y1, x0, y1 - r); s.lineTo(x0, y0 + r); s.quadraticCurveTo(x0, y0, x0 + r, y0);
+    return s;
+  }
+  const padMesh = (shape, z, m) => { const p = new THREE.Mesh(new THREE.ExtrudeGeometry(shape, { depth: 0.08, bevelEnabled: false }), m); p.position.z = z; return p; };
+  // Небольшие помощники: всё строим в группе оборудования (своя точка и поворот)
+  function eq(root, x, y, z, ang = 0) { const g = new THREE.Group(); g.position.set(x, y, z); g.rotation.z = ang; root.add(g); return g; }
+  const bx = (g, x, y, z, w, d, h, c) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, d, h), ymat(c)); m.position.set(x, y, z + h / 2); g.add(m); return m; };
+  const post = (g, x, y, z, h, r, c) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 8), ymat(c)); m.rotation.x = Math.PI / 2; m.position.set(x, y, z + h / 2); g.add(m); return m; };
+  // Горка: башня с крышей, лестница и скат
+  function slide(g, c1, c2) {
+    for (const [x, y] of [[-0.8, -0.8], [0.8, -0.8], [-0.8, 0.8], [0.8, 0.8]]) post(g, x, y, 0, 2.6, 0.07, 0xf2f2ee);
+    bx(g, 0, 0, 1.4, 1.8, 1.8, 0.12, c1);
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.45, 0.9, 4), ymat(c2)); roof.rotation.x = Math.PI / 2; roof.rotation.y = Math.PI / 4; roof.position.set(0, 0, 3.05); g.add(roof);
+    const ch = new THREE.Mesh(new THREE.BoxGeometry(0.75, 3.4, 0.12), ymat(c2)); ch.position.set(0, -2.45, 0.75); ch.rotation.x = -Math.atan2(1.4, 3.1); g.add(ch);
+    for (let i = 0; i < 5; i++) bx(g, 0, 1.0 + i * 0.25, i * 0.28, 0.7, 0.12, 0.06, 0xf2f2ee);
+  }
+  function swings(g, c) {
+    for (const x of [-1.6, 1.6]) { post(g, x, -0.5, 0, 2.3, 0.07, c); post(g, x, 0.5, 0, 2.3, 0.07, c); }
+    bx(g, 0, 0, 2.25, 3.4, 0.12, 0.12, c);
+    for (const x of [-0.7, 0.7]) { bx(g, x, 0, 0.5, 0.03, 0.03, 1.75, 0x333333); bx(g, x, 0, 0.45, 0.5, 0.25, 0.06, 0x333333); }
+  }
+  function dome(g, c) { const m = new THREE.Mesh(new THREE.SphereGeometry(1.5, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: c, wireframe: true })); m.rotation.x = Math.PI / 2; g.add(m); }
+  function rocker(g, c) { bx(g, 0, 0, 0, 0.08, 0.08, 0.45, 0x444444); const s = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), ymat(c)); s.scale.set(1.3, 0.7, 0.8); s.position.set(0, 0, 0.7); g.add(s); }
+  function sandbox(g) { bx(g, 0, 0, 0, 2.6, 2.6, 0.3, 0xe7d9b8); for (const [x, y, w, d] of [[0, 1.3, 2.8, 0.2], [0, -1.3, 2.8, 0.2], [1.3, 0, 0.2, 2.8], [-1.3, 0, 0.2, 2.8]]) bx(g, x, y, 0, w, d, 0.4, 0xb98a5a); }
+  function bench(g) { bx(g, 0, 0, 0.4, 1.8, 0.5, 0.08, 0xb98a5a); for (const x of [-0.7, 0.7]) bx(g, x, 0, 0, 0.1, 0.45, 0.4, 0x3a3d42); bx(g, 0, 0.22, 0.48, 1.8, 0.06, 0.4, 0xb98a5a); }
+  function hoop(g) { post(g, 0, 0, 0, 3.2, 0.08, 0x3a3d42); bx(g, 0, -0.45, 2.9, 1.8, 0.06, 1.05, 0xf4f4f0); const r = new THREE.Mesh(new THREE.TorusGeometry(0.23, 0.02, 4, 16), ymat(0xe05a1e)); r.position.set(0, -0.75, 3.05); g.add(r); }
+  function goal(g) { for (const x of [-1.5, 1.5]) post(g, x, 0, 0, 2, 0.05, 0xf4f4f0); bx(g, 0, 0, 1.95, 3.1, 0.1, 0.1, 0xf4f4f0); bx(g, 0, 0.5, 0, 3, 1, 2, 0xdfe6ea).material = new THREE.MeshBasicMaterial({ color: 0xffffff, wireframe: true, transparent: true, opacity: 0.35 }); }
+  function workout(g) { for (const x of [-1.2, 0, 1.2]) post(g, x, 0, 0, 2.4, 0.05, 0x3a3d42); bx(g, 0, 0, 2.3, 2.6, 0.06, 0.06, 0x3a3d42); bx(g, -0.6, 0, 1.4, 1.2, 0.06, 0.06, 0x3a3d42); }
+  function canopy(g, c) { post(g, 0, 0, 0, 2.6, 0.06, 0xdedbd4); const d = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.7, 0.18, 24), ymat(c)); d.rotation.x = Math.PI / 2; d.position.set(0, 0, 2.7); g.add(d); bx(g, 0, 0, 0, 2.2, 0.4, 0.42, 0xb98a5a); }
+  function pergola(root, x0, y0, x1, y1, z, h = 2.8) {
+    const g = eq(root, 0, 0, z), alongX = x1 - x0 >= y1 - y0, L = alongX ? x1 - x0 : y1 - y0, n = Math.max(2, Math.round(L / 3));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      for (const s of [0, 1]) alongX ? post(g, x0 + (x1 - x0) * t, s ? y1 : y0, 0, h, 0.09, 0x8a6a48) : post(g, s ? x1 : x0, y0 + (y1 - y0) * t, 0, h, 0.09, 0x8a6a48);
+    }
+    const slats = Math.round(L / 0.45);
+    for (let i = 0; i <= slats; i++) {
+      const t = i / slats;
+      if (alongX) bx(g, x0 + (x1 - x0) * t, (y0 + y1) / 2, h, 0.08, y1 - y0 + 0.4, 0.16, 0xb88a5c);
+      else bx(g, (x0 + x1) / 2, y0 + (y1 - y0) * t, h, x1 - x0 + 0.4, 0.08, 0.16, 0xb88a5c);
+    }
+  }
+  function courtTex(color, kind) {
+    const key = 'court_' + color + kind; if (YM[key]) return YM[key];
+    const c = document.createElement('canvas'); c.width = 256; c.height = 512; const g = c.getContext('2d');
+    g.fillStyle = color; g.fillRect(0, 0, 256, 512);
+    g.strokeStyle = '#ffffff'; g.lineWidth = 5; g.strokeRect(12, 12, 232, 488);
+    g.beginPath(); g.moveTo(12, 256); g.lineTo(244, 256); g.stroke();
+    g.beginPath(); g.arc(128, 256, 40, 0, Math.PI * 2); g.stroke();
+    if (kind === 'basket') { g.beginPath(); g.arc(128, 12, 80, 0, Math.PI); g.stroke(); g.beginPath(); g.arc(128, 500, 80, Math.PI, 0); g.stroke(); }
+    else { g.strokeRect(70, 12, 116, 60); g.strokeRect(70, 440, 116, 60); }
+    return (YM[key] = new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(c) }));
+  }
+  const PALETTES = { blue: [0x3aa7d9, 0xf08a3c, 0xffd23f], orange: [0xf08a3c, 0x3aa7d9, 0x7ac74f], bright: [0xe84855, 0x2ec4b6, 0xffbf00] };
+  function buildYard(root, items, seed) {
+    const r = rng(seed + 501);
+    for (const it of items || []) {
+      const z = it.z || 0;
+      if (it.t === 'pave' || it.t === 'deck' || it.t === 'lawn' || it.t === 'asphalt') {
+        root.add(flat(it.pts || rct(it.x0, it.y0, it.x1, it.y1), z, tileTex(it.t))); continue;
+      }
+      if (it.t === 'flowers') { // низкие кусты и цветы (не выше 0,8 м)
+        const area = (it.x1 - it.x0) * (it.y1 - it.y0), n = Math.min(500, Math.round(area * (it.dense || 0.45)));
+        root.add(flat(rct(it.x0, it.y0, it.x1, it.y1), z, tileTex('lawn')));
+        const m = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(0.5, 0), lambert({ color: 0xffffff }), n), o = new THREE.Object3D(), col = new THREE.Color();
+        const cols = [0x4f8a3a, 0x5f9a45, 0x3f7a30, 0x6aa84f, 0xd96a9c, 0xf08a3c, 0xe6c84a];
+        for (let i = 0; i < n; i++) {
+          const s = 0.35 + r() * 0.45; o.position.set(it.x0 + r() * (it.x1 - it.x0), it.y0 + r() * (it.y1 - it.y0), z + s * 0.45);
+          o.scale.set(s * (1 + r() * 0.6), s * (1 + r() * 0.6), s); o.rotation.set(r(), r(), r()); o.updateMatrix(); m.setMatrixAt(i, o.matrix);
+          m.setColorAt(i, col.setHex(cols[r() < 0.75 ? Math.floor(r() * 4) : 4 + Math.floor(r() * 3)]));
+        }
+        root.add(m); continue;
+      }
+      if (it.t === 'pergola') { pergola(root, it.x0, it.y0, it.x1, it.y1, z, it.h); continue; }
+      const { x0, y0, x1, y1 } = it, W = x1 - x0, H = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, longX = W >= H;
+      const along = (k, n) => longX ? [x0 + W * (k + 0.5) / n, cy] : [cx, y0 + H * (k + 0.5) / n];
+      const ang = longX ? Math.PI / 2 : 0;
+      if (it.t === 'play') {
+        const pal = PALETTES[it.palette || 'blue'];
+        root.add(padMesh(roundRect(x0, y0, x1, y1, 2), z, ymat(pal[0])));
+        root.add(padMesh(roundRect(x0 + 0.6, y0 + 0.6, x1 - 0.6, y1 - 0.6, 1.6), z + 0.02, ymat(0xe9e2d3)));
+        const L = Math.max(W, H), n = Math.max(2, Math.floor(L / 6));
+        const kit = [(g) => slide(g, pal[1], pal[0]), (g) => swings(g, pal[2]), (g) => dome(g, pal[1]), (g) => sandbox(g), (g) => { rocker(eq(g, -0.8, 0, 0), pal[2]); rocker(eq(g, 0.8, 0, 0), pal[1]); }, (g) => slide(g, pal[2], pal[1])];
+        for (let k = 0; k < n; k++) { const [x, y] = along(k, n); kit[(k + (it.shift || 0)) % kit.length](eq(root, x, y, z + 0.1, ang)); }
+        const [bx0, by0] = longX ? [x0 + 1, y1 - 0.6] : [x1 - 0.6, y0 + 1];
+        bench(eq(root, bx0, by0, z + 0.1, longX ? 0 : Math.PI / 2));
+        continue;
+      }
+      if (it.t === 'sport') {
+        const kind = it.kind || 'basket', court = new THREE.Mesh(new THREE.PlaneGeometry(longX ? H : W, longX ? W : H), courtTex(it.color || '#2f9c8f', kind));
+        court.position.set(cx, cy, z + 0.06); if (longX) court.rotation.z = Math.PI / 2; root.add(court);
+        const half = (Math.max(W, H)) / 2 - 0.6;
+        for (const s of [-1, 1]) {
+          const g = eq(root, longX ? cx + s * half : cx, longX ? cy : cy + s * half, z + 0.06, (longX ? -Math.PI / 2 : 0) + (s > 0 ? Math.PI : 0));
+          kind === 'basket' ? hoop(g) : goal(g);
+        }
+        // сетчатое ограждение
+        const fence = new THREE.Mesh(new THREE.BoxGeometry(W, H, 2.5), new THREE.MeshBasicMaterial({ color: 0x2b2e33, wireframe: true, transparent: true, opacity: 0.18 }));
+        fence.position.set(cx, cy, z + 1.3); fence.userData.noShadow = true; root.add(fence);
+        continue;
+      }
+      if (it.t === 'workout') {
+        root.add(padMesh(roundRect(x0, y0, x1, y1, 1), z, ymat(0x3c3f45)));
+        const n = Math.max(2, Math.floor(Math.max(W, H) / 4));
+        for (let k = 0; k < n; k++) { const [x, y] = along(k, n); workout(eq(root, x, y, z + 0.08, ang)); }
+        continue;
+      }
+      if (it.t === 'lounge') {
+        root.add(flat(rct(x0, y0, x1, y1), z + 0.03, tileTex('pave')));
+        const n = Math.max(2, Math.floor(Math.max(W, H) / 5)), cols = [0xd8b26e, 0xe8e2d4, 0xc99a5b];
+        for (let k = 0; k < n; k++) { const [x, y] = along(k, n); canopy(eq(root, x, y, z + 0.05, ang), cols[k % 3]); }
+        continue;
+      }
+      if (it.t === 'field') { // спортивное поле-овал: беговая дорожка + искусственный газон + ворота
+        const ring = (rx, ry, zz, c) => { const pts = Array.from({ length: 48 }, (_, k) => [it.c[0] + rx * Math.cos(k / 48 * Math.PI * 2), it.c[1] + ry * Math.sin(k / 48 * Math.PI * 2)]); root.add(flat(pts, zz, ymat(c))); };
+        ring(it.rx, it.ry, z, 0xc2553a); ring(it.rx - 1.6, it.ry - 1.6, z + 0.03, 0x4f9e48);
+        const tall = it.ry > it.rx;
+        for (const s of [-1, 1]) goal(eq(root, it.c[0] + (tall ? 0 : s * (it.rx - 3.2)), it.c[1] + (tall ? s * (it.ry - 3.2) : 0), z + 0.05, (tall ? 0 : Math.PI / 2) + (s > 0 ? Math.PI : 0)));
+        const lines = new THREE.Mesh(new THREE.PlaneGeometry(tall ? (it.rx - 2) * 1.2 : 0.15, tall ? 0.15 : (it.ry - 2) * 1.2), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+        lines.position.set(it.c[0], it.c[1], z + 0.06); root.add(lines);
+        continue;
+      }
+    }
+  }
+
   /* ---------- Сцена объекта ---------- */
   function buildScene(p, api) {
     const scene = new THREE.Scene();
@@ -413,6 +569,7 @@
     for (const v of p.vaults || []) { const n = root.children.length; buildVault(root, v); labelNew(n, 'Въезд в подземный паркинг'); }
     for (const d of p.downRamps || []) { const n = root.children.length; buildDownRamp(root, d); labelNew(n, 'Въезд в подземный паркинг −1/−2'); }
     buildParking(root, p.parking || [], seed);
+    buildYard(root, p.yard, seed);
 
     // Жилые блоки
     const blockInfo = {};
@@ -506,23 +663,6 @@
       }
       instanced(bg, fins, finMat); instanced(bg, bands, finMat);
       blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick, pieces };
-    }
-
-    // Деревья
-    const trees = p.trees || [];
-    if (trees.length) {
-      const crown = new THREE.IcosahedronGeometry(1, 1);
-      const trunk = new THREE.CylinderGeometry(0.15, 0.22, 1, 6); trunk.rotateX(Math.PI / 2);
-      const cm = new THREE.InstancedMesh(crown, lambert({ color: 0xffffff }), trees.length);
-      const tm = new THREE.InstancedMesh(trunk, lambert({ color: 0x6b5340 }), trees.length);
-      const o = new THREE.Object3D(), r = rng(seed + 9), col = new THREE.Color();
-      trees.forEach(([x, y, z = 0], i) => {
-        const s = 1.8 + r() * 1.4, h = 2.2 + r() * 1.2;
-        o.position.set(x, y, z + h / 2); o.rotation.set(0, 0, 0); o.scale.set(1, 1, h); o.updateMatrix(); tm.setMatrixAt(i, o.matrix);
-        o.position.set(x, y, z + h + s * 0.8); o.scale.set(s, s, s * 1.15); o.rotation.set(r(), r(), r()); o.updateMatrix(); cm.setMatrixAt(i, o.matrix);
-        col.setHSL(0.24 + r() * 0.06, 0.35 + r() * 0.15, 0.32 + r() * 0.1); cm.setColorAt(i, col);
-      });
-      root.add(tm, cm);
     }
 
     // Подсветка этажей
