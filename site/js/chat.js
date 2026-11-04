@@ -224,6 +224,7 @@
     me = user;
     document.body.classList.add('is-staff');
     disconnectGuest(); gBtn.hidden = true; gPanel.hidden = true;
+    window.YurtaStaff = user; window.dispatchEvent(new Event('yurta:staff'));
     loginBtn.hidden = false;
     try { localStorage.setItem('yurta_staff_device', '1'); } catch (e) {}
     loginBtn.querySelector('span').textContent = 'Пульт';

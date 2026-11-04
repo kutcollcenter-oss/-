@@ -517,12 +517,65 @@
         info.group.traverse((m) => {
           if (!m.isMesh) return;
           if (!m.userData.mat) m.userData.mat = m.material;
+          if (ghost) { m.castShadow = false; }
           m.material = ghost ? ghostMat : m.userData.mat;
           m.userData.ghost = ghost;
         });
       }
     }
-    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo };
+    // ---------- Солнце и тени ----------
+    const amb = scene.children.find((x) => x.isAmbientLight), hemiL = scene.children.find((x) => x.isHemisphereLight);
+    const ext = (() => { const xs = p.plot.map((q) => q[0]), ys = p.plot.map((q) => q[1]); return { cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2, r: Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 60 }; })();
+    const centerW = new THREE.Vector3(ext.cx, ext.cy, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), root.rotation.z);
+    sun.target.position.copy(centerW); scene.add(sun.target);
+    sun.shadow.mapSize.set(2048, 2048);
+    Object.assign(sun.shadow.camera, { left: -ext.r, right: ext.r, top: ext.r, bottom: -ext.r, near: 1, far: 1200 });
+    sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.4;
+    const catcher = new THREE.Mesh(new THREE.PlaneGeometry(ext.r * 2.6, ext.r * 2.6), new THREE.ShadowMaterial({ opacity: 0.32 }));
+    catcher.position.set(ext.cx, ext.cy, 0.03); catcher.receiveShadow = true; catcher.visible = false; root.add(catcher);
+    const defaults = { pos: sun.position.clone(), int: sun.intensity, amb: amb.intensity, hemi: hemiL.intensity };
+    // az — азимут солнца (0 = север, по часовой), alt — высота над горизонтом, градусы
+    function setSun(on, az, alt) {
+      const shadows = !!on;
+      root.traverse((m) => { if (m.isMesh && !m.userData.noShadow) { m.castShadow = shadows; m.receiveShadow = shadows; } });
+      catcher.visible = shadows; sun.castShadow = shadows;
+      if (!on) { sun.position.copy(defaults.pos); sun.intensity = defaults.int; amb.intensity = defaults.amb; hemiL.intensity = defaults.hemi; sun.color.set(0xfff0d8); return; }
+      const A = az * Math.PI / 180, h = Math.max(alt, -2) * Math.PI / 180;
+      const dir = new THREE.Vector3(Math.sin(A) * Math.cos(h), Math.cos(A) * Math.cos(h), Math.sin(h));
+      sun.position.copy(centerW).addScaledVector(dir, 600);
+      const day = Math.max(0, Math.min(1, alt / 25));
+      sun.intensity = alt > 0 ? 0.25 + 0.6 * day : 0;
+      sun.color.setHSL(0.09, 0.7, 0.62 + 0.3 * day);
+      amb.intensity = 0.12 + 0.2 * day; hemiL.intensity = 0.15 + 0.3 * day;
+    }
+    // Есть ли преграда между точкой (метры участка) и солнцем — по домам этого ЖК
+    const sunRay = new THREE.Raycaster();
+    function sunBlocked(pt, az, alt) {
+      root.updateMatrixWorld(true);
+      const A = az * Math.PI / 180, h = alt * Math.PI / 180;
+      const d = new THREE.Vector3(Math.sin(A) * Math.cos(h), Math.cos(A) * Math.cos(h), Math.sin(h));
+      const o = root.localToWorld(new THREE.Vector3(pt[0], pt[1], pt[2])).addScaledVector(d, 0.8);
+      sunRay.set(o, d); sunRay.far = 800;
+      return sunRay.intersectObjects(pick, false).length > 0;
+    }
+    // ---------- Свечение квартир, подходящих по бюджету ----------
+    const matchMat = new THREE.MeshBasicMaterial({ color: 0x27c26c, transparent: true, opacity: 0.72, depthWrite: false, side: THREE.DoubleSide });
+    const matchMesh = new THREE.Mesh(new THREE.BufferGeometry(), matchMat);
+    matchMesh.renderOrder = 11; matchMesh.visible = false; matchMesh.userData.noShadow = true; root.add(matchMesh);
+    function setMatches(quads) {
+      matchMesh.geometry.dispose();
+      if (!quads || !quads.length) { matchMesh.geometry = new THREE.BufferGeometry(); matchMesh.visible = false; return; }
+      const pos = [], idx = [];
+      for (const q of quads) {
+        const o = 0.35, ax = q.a[0] + q.n[0] * o, ay = q.a[1] + q.n[1] * o, bx = q.b[0] + q.n[0] * o, by = q.b[1] + q.n[1] * o, k = pos.length / 3;
+        pos.push(ax, ay, q.z0, bx, by, q.z0, bx, by, q.z1, ax, ay, q.z1);
+        idx.push(k, k + 1, k + 2, k, k + 2, k + 3);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+      matchMesh.geometry = g; matchMesh.visible = true;
+    }
+    [hoverMesh, selMesh, aptMesh].forEach((x) => { x.userData.noShadow = true; });
+    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -541,6 +594,7 @@
           if (!renderer) {
             renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
             renderer.autoClear = false;
+            renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
           }
           L.built = buildScene(p, api);
         },
@@ -622,7 +676,11 @@
     }
     // Кусочки фасада блока (центр, нормаль, есть ли окна) — для камеры «со стороны окон»
     const facade = (p, b) => { const L = layers[p.id]; return L && L.built ? L.built.blockInfo[b.id].pieces : null; };
-    return { pick, highlight, highlightApt, focusBlock, facade };
+    const sunState = { on: false };
+    function setSun(on, az, alt) { sunState.on = on; for (const id in layers) { const L = layers[id]; if (L.built) L.built.setSun(on, az, alt); } map.triggerRepaint(); }
+    const sunBlocked = (p, pt, az, alt) => { const L = layers[p.id]; return !!(L && L.built && L.built.sunBlocked(pt, az, alt)); };
+    function setMatches(p, quads) { const L = layers[p.id]; if (L && L.built) { L.built.setMatches(quads); map.triggerRepaint(); return true; } return false; }
+    return { pick, highlight, highlightApt, focusBlock, facade, setSun, sunBlocked, setMatches };
   }
 
   window.Yurta3D = { init };

@@ -8,13 +8,14 @@ const crypto = require('crypto');
 const ROOT = path.join(__dirname, 'site');
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const UPLOADS = path.join(DATA_DIR, 'uploads'); // фото стройки и вида из окна, загруженные сотрудниками
 const PORT = process.env.PORT || 5180;
 const SESSION_DAYS = 30;
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.mp3': 'audio/mpeg' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.json': 'application/json', '.mp3': 'audio/mpeg', '.webp': 'image/webp' };
 
 /* ---------- Хранилище (JSON-файл) ---------- */
 fs.mkdirSync(DATA_DIR, { recursive: true });
-let db = { users: [], sessions: {}, chats: {} };
+let db = { users: [], sessions: {}, chats: {}, media: [], progress: {}, offers: {} };
 try { db = { ...db, ...JSON.parse(fs.readFileSync(DB_FILE, 'utf8')) }; } catch (e) {}
 let saveTimer = null;
 function save() {
@@ -98,10 +99,10 @@ function limited(key, max, ms) {
 
 /* ---------- HTTP ---------- */
 function json(res, code, data, headers = {}) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(data)); }
-function body(req) {
+function body(req, max = 20000) {
   return new Promise((resolve, reject) => {
     let s = '';
-    req.on('data', (c) => { s += c; if (s.length > 20000) { reject(new Error('too big')); req.destroy(); } });
+    req.on('data', (c) => { s += c; if (s.length > max) { reject(new Error('too big')); req.destroy(); } });
     req.on('end', () => { try { resolve(s ? JSON.parse(s) : {}); } catch (e) { reject(e); } });
   });
 }
@@ -110,7 +111,7 @@ async function api(req, res, url) {
   const p = url.pathname, m = req.method;
   const ip = req.socket.remoteAddress;
   if (m === 'POST' && !(req.headers['content-type'] || '').includes('application/json')) return json(res, 415, { error: 'json only' });
-  const b = m === 'POST' ? await body(req) : {};
+  const b = m === 'POST' ? await body(req, p === '/api/media' ? 17e6 : 20000) : {};
   const me = currentUser(req);
 
   /* --- вход сотрудников --- */
@@ -182,7 +183,64 @@ async function api(req, res, url) {
   }
 
   /* --- сотрудники (нужен вход) --- */
+  /* --- публичное: ход стройки, фото, расчёты --- */
+  if (p === '/api/media' && m === 'GET') {
+    const pid = cleanText(url.searchParams.get('pid'), 40);
+    return json(res, 200, { media: db.media.filter((x) => !pid || x.pid === pid), progress: pid ? db.progress[pid] || null : db.progress });
+  }
+  if (p === '/api/offers' && m === 'POST') {
+    if (limited('offer:' + ip, 30, 60 * 60 * 1000)) return json(res, 429, { error: 'Слишком много расчётов. Попробуйте позже.' });
+    const o = b.offer || {};
+    const num = (v) => (Number.isFinite(+v) ? +v : 0);
+    const offer = {
+      id: crypto.randomBytes(6).toString('base64url'), createdAt: Date.now(), by: me ? me.name : '',
+      pid: cleanText(o.pid, 40), project: cleanText(o.project, 80), address: cleanText(o.address, 160), completion: cleanText(o.completion, 40),
+      block: cleanText(o.block, 8), floor: num(o.floor), floors: num(o.floors), apt: num(o.apt), rooms: cleanText(o.rooms, 30), euro: !!o.euro,
+      area: num(o.area), price: num(o.price), m2: num(o.m2), down: num(o.down), months: num(o.months),
+      planImg: cleanText(o.planImg, 120), planW: num(o.planW), planH: num(o.planH), render: cleanText(o.render, 120),
+      poly: Array.isArray(o.poly) ? o.poly.slice(0, 40).map((q) => [num(q[0]), num(q[1])]) : [],
+    };
+    db.offers[offer.id] = offer;
+    const ids = Object.keys(db.offers); if (ids.length > 5000) delete db.offers[ids[0]];
+    save();
+    return json(res, 200, { id: offer.id });
+  }
+  let om = p.match(/^\/api\/offers\/([A-Za-z0-9_-]{4,20})$/);
+  if (om && m === 'GET') return db.offers[om[1]] ? json(res, 200, { offer: db.offers[om[1]] }) : json(res, 404, { error: 'Расчёт не найден' });
+
   if (!me) return json(res, 401, { error: 'Нужно войти' });
+  /* --- сотрудники: фото стройки / вида из окна, процент готовности --- */
+  if (p === '/api/media' && m === 'POST') {
+    const mt = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(String(b.image || ''));
+    if (!mt) return json(res, 400, { error: 'Нужна фотография (JPG, PNG или WEBP)' });
+    const buf = Buffer.from(mt[2], 'base64');
+    if (buf.length > 12 * 1024 * 1024) return json(res, 400, { error: 'Файл больше 12 МБ' });
+    const id = crypto.randomBytes(8).toString('hex'), ext = mt[1] === 'jpeg' ? 'jpg' : mt[1];
+    fs.mkdirSync(UPLOADS, { recursive: true });
+    fs.writeFileSync(path.join(UPLOADS, `${id}.${ext}`), buf);
+    const item = {
+      id, url: `/uploads/${id}.${ext}`, type: b.type === 'view' ? 'view' : 'progress', pid: cleanText(b.pid, 40),
+      date: cleanText(b.date, 10) || new Date().toISOString().slice(0, 10), caption: cleanText(b.caption, 200),
+      block: cleanText(b.block, 8), floorFrom: +b.floorFrom || 0, floorTo: +b.floorTo || 0, side: ['N', 'E', 'S', 'W'].includes(b.side) ? b.side : '',
+      by: me.name, at: Date.now(),
+    };
+    db.media.push(item); save();
+    return json(res, 200, { item });
+  }
+  let mm2 = p.match(/^\/api\/media\/([0-9a-f]{16})$/);
+  if (mm2 && m === 'DELETE') {
+    const it = db.media.find((x) => x.id === mm2[1]); if (!it) return json(res, 404, { error: 'нет такого' });
+    db.media = db.media.filter((x) => x !== it);
+    try { fs.unlinkSync(path.join(UPLOADS, path.basename(it.url))); } catch (e) {}
+    save(); return json(res, 200, { ok: true });
+  }
+  if (p === '/api/progress' && m === 'POST') {
+    const pid = cleanText(b.pid, 40); if (!pid) return json(res, 400, { error: 'нет объекта' });
+    db.progress[pid] = { percent: Math.max(0, Math.min(100, Math.round(+b.percent || 0))), stage: cleanText(b.stage, 120), updatedAt: Date.now(), by: me.name };
+    save(); return json(res, 200, { progress: db.progress[pid] });
+  }
+
+
   if (p === '/api/staff/stream') {
     sse(res);
     const entry = { res, user: me };
@@ -261,6 +319,10 @@ http.createServer(async (req, res) => {
     return;
   }
   let p = decodeURIComponent(url.pathname);
+  if (p.startsWith('/uploads/')) {
+    const f = path.join(UPLOADS, path.basename(p));
+    return fs.readFile(f, (err, data) => { if (err) { res.writeHead(404); return res.end(); } res.writeHead(200, { 'Content-Type': TYPES[path.extname(f)] || 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' }); res.end(data); });
+  }
   if (p.endsWith('/')) p += 'index.html';
   const file = path.join(ROOT, p);
   if (!file.startsWith(ROOT)) { res.writeHead(403); return res.end(); }

@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Расчёт рассрочки — Объекты</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --ink: #14161a; --ink-2: #4a505a; --ink-3: #8a909a; --line: #e6e3de; --bg-2: #f6f4f0; --accent: #d4572a; --free: #2f9e6a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #ebe8e3; color: var(--ink); font-family: 'Manrope', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    .page { max-width: 820px; margin: 24px auto; background: #fff; border-radius: 18px; padding: 32px; box-shadow: 0 10px 40px rgba(0,0,0,.08); }
+    .top { display: flex; justify-content: space-between; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 16px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 20px; }
+    .actions { display: flex; gap: 8px; }
+    .btn { border: 0; border-radius: 12px; padding: 11px 16px; font: inherit; font-weight: 800; font-size: 14px; cursor: pointer; text-decoration: none; }
+    .btn.main { background: var(--accent); color: #fff; } .btn.wa { background: #25d366; color: #fff; }
+    h1 { font-size: 28px; margin: 22px 0 4px; letter-spacing: -.02em; }
+    .muted { color: var(--ink-2); font-size: 14px; }
+    .hero { display: grid; grid-template-columns: 1.1fr 1fr; gap: 18px; margin-top: 20px; }
+    .hero img.render { width: 100%; height: 100%; max-height: 270px; object-fit: cover; border-radius: 14px; }
+    .plan { position: relative; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+    .plan img, .plan svg { display: block; width: 100%; height: 100%; }
+    .plan svg { position: absolute; inset: 0; }
+    .plan polygon { fill: rgba(212,87,42,.35); stroke: var(--accent); stroke-width: 3; vector-effect: non-scaling-stroke; }
+    .facts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 20px 0; }
+    .fact { background: var(--bg-2); border-radius: 12px; padding: 12px; }
+    .fact span { display: block; font-size: 12px; color: var(--ink-3); } .fact b { font-size: 16px; }
+    .sum { background: var(--ink); color: #fff; border-radius: 14px; padding: 18px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .sum span { display: block; font-size: 12px; opacity: .7; } .sum b { font-size: 18px; }
+    .sum .big b { color: #ffb38f; font-size: 22px; }
+    h2 { font-size: 18px; margin: 26px 0 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); }
+    th { font-size: 12px; color: var(--ink-3); font-weight: 700; }
+    td.r, th.r { text-align: right; } tr.first td { background: #fdf3ef; font-weight: 700; }
+    .note { font-size: 12px; color: var(--ink-3); margin-top: 16px; line-height: 1.5; }
+    .err { text-align: center; padding: 60px 20px; }
+    @media (max-width: 640px) {
+      .page { margin: 0; border-radius: 0; padding: 18px; }
+      .hero, .facts, .sum { grid-template-columns: 1fr 1fr; }
+      .hero img.render { max-height: 180px; } .top { flex-wrap: wrap; }
+    }
+    @media print {
+      body { background: #fff; } .page { box-shadow: none; margin: 0; max-width: none; padding: 0; } .actions { display: none; }
+      tr { break-inside: avoid; } @page { size: A4; margin: 14mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="page" id="page"><div class="err">Загрузка расчёта…</div></div>
+  <script>
+  (async () => {
+    const page = document.getElementById('page');
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const som = (v) => Math.round(v).toLocaleString('ru-RU') + ' сом';
+    const id = new URLSearchParams(location.search).get('id') || '';
+    let o;
+    try { const r = await fetch('/api/offers/' + encodeURIComponent(id)); if (!r.ok) throw 0; o = (await r.json()).offer; }
+    catch (e) { page.innerHTML = '<div class="err"><h1>Расчёт не найден</h1><p class="muted">Возможно, ссылка устарела. Попросите менеджера отправить новую.</p></div>'; return; }
+
+    // График: остаток делится на равные платежи, последний платёж выравнивает копейки округления
+    const rest = Math.max(0, o.price - o.down), months = Math.max(1, o.months);
+    const pay = Math.round(rest / months), last = rest - pay * (months - 1);
+    const start = new Date(o.createdAt), rows = [];
+    let left = rest;
+    for (let i = 1; i <= months; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, Math.min(start.getDate(), 28));
+      const v = i === months ? last : pay; left -= v;
+      rows.push(`<tr><td>${i}</td><td>${d.toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</td><td class="r">${som(v)}</td><td class="r">${som(Math.max(0, left))}</td></tr>`);
+    }
+    const area = String(o.area).replace('.', ',') + ' м²';
+    document.title = `Расчёт: ЖК ${o.project}, кв. ${o.apt}`;
+    const waText = `Расчёт рассрочки: ЖК ${o.project}, кв. ${o.apt}, ${area}\n${location.href}`;
+    page.innerHTML = `
+      <div class="top"><div class="brand">🏢 Объекты <span class="muted" style="font-weight:500;font-size:13px">новостройки Бишкека в рассрочку</span></div>
+        <div class="actions"><a class="btn wa" href="https://wa.me/?text=${encodeURIComponent(waText)}" target="_blank" rel="noopener">WhatsApp</a><button class="btn main" onclick="print()">Скачать PDF</button></div></div>
+      <h1>ЖК ${esc(o.project)} · ${esc(o.rooms)}${o.euro ? ' (евро)' : ''}</h1>
+      <div class="muted">${esc(o.address)} · блок ${esc(o.block)}, ${o.floor} этаж из ${o.floors}, квартира № ${o.apt} · сдача ${esc(o.completion)}</div>
+      <div class="hero">
+        <img class="render" src="${esc(o.render)}" alt="">
+        <div class="plan" style="aspect-ratio:${o.planW}/${o.planH}"><img src="${esc(o.planImg)}" alt="План этажа"><svg viewBox="0 0 ${o.planW} ${o.planH}" preserveAspectRatio="none"><polygon points="${o.poly.map((q) => q.join(',')).join(' ')}"/></svg></div>
+      </div>
+      <div class="facts">
+        <div class="fact"><span>Площадь</span><b>${area}</b></div>
+        <div class="fact"><span>Цена за м²</span><b>${som(o.m2)}</b></div>
+        <div class="fact"><span>Этаж</span><b>${o.floor} из ${o.floors}</b></div>
+        <div class="fact"><span>Стоимость</span><b>${som(o.price)}</b></div>
+      </div>
+      <div class="sum">
+        <div><span>Первоначальный взнос</span><b>${som(o.down)}</b></div>
+        <div><span>Остаток в рассрочку</span><b>${som(rest)}</b></div>
+        <div><span>Срок</span><b>${months} мес.</b></div>
+        <div class="big"><span>Платёж в месяц</span><b>${som(pay)}</b></div>
+      </div>
+      <h2>График платежей</h2>
+      <table><thead><tr><th>№</th><th>Месяц</th><th class="r">Платёж</th><th class="r">Остаток</th></tr></thead>
+        <tbody><tr class="first"><td>0</td><td>Первоначальный взнос</td><td class="r">${som(o.down)}</td><td class="r">${som(rest)}</td></tr>${rows.join('')}</tbody></table>
+      <p class="note">Рассрочка без процентов и переплаты. Расчёт предварительный от ${new Date(o.createdAt).toLocaleDateString('ru-RU')}${o.by ? ', менеджер: ' + esc(o.by) : ''}. Точные условия и даты платежей фиксируются в договоре.</p>`;
+  })();
+  </script>
+</body>
+</html>

@@ -85,6 +85,8 @@
     addMarkers();
     setupInteractions();
     route();
+    renderCmpBar();
+    updateMatches();
   });
   function ring(p, pts) { const r = pts.map((q) => toLngLat(p, q)); r.push(r[0]); return r; }
 
@@ -301,6 +303,8 @@
     state.project = p || null; state.block = b || null;
     state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
+    if (viewMode && (!state.apt || viewMode.a !== state.apt)) closeWindowView(false);
+    if (!state.apt) sunOff();
     selectFloor3D(state.project, state.block, state.floor);
     if (engine) engine.focusBlock(state.block ? p : null, b, state.block ? focusTargets(p, b, state.floor, state.apt) : []); // прозрачные — только те блоки, что закрывают вид
     if (engine) engine.highlightApt(state.apt ? p : null, b, state.floor, state.apt ? aptLocalPoly(p, b, state.apt) : null);
@@ -432,7 +436,7 @@
     const good = rows.filter((x) => x.r.ok), bad = rows.filter((x) => !x.r.ok);
     const total = good.reduce((s, x) => s + x.r.total, 0);
     let h = good.length
-      ? `<div class="b-sum">Подходит <b>${total.toLocaleString('ru-RU')}</b> ${plural(total, 'квартира', 'квартиры', 'квартир')} в ${good.length} ЖК</div>`
+      ? `<div class="b-sum">Подходит <b>${total.toLocaleString('ru-RU')}</b> ${plural(total, 'квартира', 'квартиры', 'квартир')} в ${good.length} ЖК</div><div class="glow-note"><i></i>На 3D-домах эти квартиры светятся зелёным — откройте ЖК</div>`
       : `<div class="empty" style="padding:20px 6px">С таким бюджетом пока нет вариантов.<br>${bad.map((x) => `${esc(x.p.name)}: ${x.r.reason}`).join('<br>')}</div>`;
     for (const { p, r } of good) {
       h += `<div class="rcard">
@@ -459,8 +463,8 @@
       ${budgetHtml()}
       <div class="chips">${CFG.districts.map((d) => { const n = d.id === 'all' ? PROJECTS.length : PROJECTS.filter((p) => p.district === d.id).length; return `<button class="chip ${d.id === state.district ? 'active' : ''} ${n ? '' : 'zero'}" data-d="${d.id}">${d.name}<span class="cnt">${n}</span></button>`; }).join('')}</div>
       ${!list.length ? `<div class="empty">В этом районе пока нет объектов.<br>Скоро добавим.</div>` : budgetDone() ? resultsHtml(list) : list.map(cardHtml).join('')}`;
-    panelBody.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { state.district = c.dataset.d; renderList(); addMarkers(); flyDistrict(state.district); }));
-    const set = (k, v) => { state.budget[k] = v; if (k === 'down') state.budget.monthly = null; saveBudget(); renderList(); addMarkers(); };
+    panelBody.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { state.district = c.dataset.d; renderList(); addMarkers(); updateMatches(); flyDistrict(state.district); }));
+    const set = (k, v) => { state.budget[k] = v; if (k === 'down') state.budget.monthly = null; saveBudget(); renderList(); addMarkers(); updateMatches(); };
     panelBody.querySelectorAll('[data-down]').forEach((b) => b.onclick = () => set('down', +b.dataset.down));
     panelBody.querySelectorAll('[data-monthly]').forEach((b) => b.onclick = () => set('monthly', +b.dataset.monthly));
     panelBody.querySelectorAll('.bcustom').forEach((f) => {
@@ -475,9 +479,9 @@
     });
     panelBody.querySelectorAll('[data-edit]').forEach((b) => b.onclick = () => {
       if (b.dataset.edit === 'down') state.budget = { down: null, monthly: null }; else state.budget.monthly = null;
-      saveBudget(); renderList(); addMarkers();
+      saveBudget(); renderList(); addMarkers(); updateMatches();
     });
-    const r = $('#bReset'); if (r) r.onclick = () => { state.budget = { down: null, monthly: null }; saveBudget(); renderList(); addMarkers(); };
+    const r = $('#bReset'); if (r) r.onclick = () => { state.budget = { down: null, monthly: null }; saveBudget(); renderList(); addMarkers(); updateMatches(); };
   }
   function cardHtml(p) {
     const m2 = m2Range(p);
@@ -539,12 +543,15 @@
         <div class="fact"><b>${p.stats.blocks}</b><span>блоков</span></div>
       </div>
       <p class="muted" style="font-size:13px">${esc(p.about)}</p>
+      ${budgetDone() ? '<div class="glow-note"><i></i>Зелёным на доме — квартиры по вашему бюджету</div>' : ''}
+      ${progressHtml()}
       <div class="section-title"><h3>Выберите блок</h3><span class="small">или нажмите на этаж в 3D</span></div>
       <div class="blocks">${p.blocks.map((b) => `<button class="block-btn" data-go="#/${p.id}/${b.id}"><b>${b.id}</b><span>${b.floors} эт. · ${blockFree(p, b)} своб.</span></button>`).join('')}</div>
       <div class="hint">🖱 Поверните карту правой кнопкой мыши или двумя пальцами — осмотрите дом со всех сторон</div>
       <p class="small" style="margin-top:16px">Застройщик: ${esc(p.developer)}.</p>`;
     bindGallery(p);
     bindBlockHover(p);
+    bindProgress(p);
   }
   function bindBlockHover(p) {
     panelBody.querySelectorAll('.block-btn').forEach((btn) => {
@@ -607,7 +614,7 @@
         <div class="apt-row ${st}" ${st !== 'sold' ? `data-go="#/${p.id}/${b.id}/${f}/${a.n}"` : ''}>
           <b>№${aptNumber(p, b, f, a)}</b>
           <div>${roomsLabel(a)}${euroTag(a)} · ${area(a.area)}<div class="small">${st === 'sold' ? '' : som(pr) + ' · ' + som(monthly(p, pr, inst.downPayment, inst.months)) + '/мес'}</div></div>
-          <span class="st ${st}">${ST_LABEL[st]}</span></div>`; }).join('')}</div>
+          <span class="st ${st}">${ST_LABEL[st]}</span>${st !== 'sold' ? favHtml(favKey(p, b, f, a)) : ''}</div>`; }).join('')}</div>
       <p class="small" style="margin-top:12px">План типового этажа. Площади — по рабочему проекту.</p>`;
     bindPlan(panelBody, p, b, f, (a) => go(`#/${p.id}/${b.id}/${f}/${a.n}`));
     $('#zoomPlan').onclick = () => openPlanModal(p, b, f);
@@ -629,11 +636,12 @@
       ${crumbs(`#/${p.id}/${b.id}/${f}`, [[p.name, `#/${p.id}`], [blockName(p, b), `#/${p.id}/${b.id}`], [`${f} эт.`, `#/${p.id}/${b.id}/${f}`], [`Кв. ${aptNumber(p, b, f, a)}`]])}
       <div class="apt-head">
         <div><h1>${roomsLabel(a)}</h1><p class="muted" style="margin:4px 0 0">${area(a.area)} · ${f} этаж из ${b.floors} · ${blockName(p, b).toLowerCase()}</p>${a.euro ? `<p class="small" style="margin:4px 0 0">💬 ${euroNote(a)}</p>` : ''}</div>
-        <span class="st ${st}" style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap">${ST_LABEL[st]}</span>
+        <div style="display:flex;gap:6px;align-items:center"><span class="st ${st}" style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap">${ST_LABEL[st]}</span>${favHtml(favKey(p, b, f, a), true)}</div>
       </div>
       <div style="margin:14px 0 4px" class="price">${som(price)}</div>
       <div class="small">${som(priceM2(p, b))} за м² · сдача ${esc(p.completion)}</div>
       <div style="margin-top:14px">${planHtml(p, b, f)}</div>
+      <div class="apt-tools"><button class="tool" id="winView">👁 Вид из окна</button><button class="tool" id="offerBtn">📄 Расчёт в WhatsApp / PDF</button></div>
       <div class="calc">
         <h3>Рассчитать рассрочку</h3>
         <label>Первоначальный взнос <b id="cDown"></b></label>
@@ -650,6 +658,7 @@
       </div>
       <button class="cta" id="leadBtn" ${st === 'sold' ? 'disabled' : ''}>${st === 'booked' ? 'Встать в очередь на квартиру' : 'Забронировать квартиру'}</button>
       <button class="cta ghost" data-go="#/${p.id}/${b.id}/${f}">Другие квартиры на этаже</button>
+      ${sunHtml()}
       <p class="small" style="margin-top:12px">Расчёт предварительный. Точные условия подтвердит менеджер.</p>`;
     bindPlan(panelBody, p, b, f, (x) => go(`#/${p.id}/${b.id}/${f}/${x.n}`));
     const rDown = $('#rDown'), rMonths = $('#rMonths');
@@ -664,6 +673,336 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
+    $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
+    $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
+    bindSun(p, b, f, a);
+  }
+
+  /* =====================================================================
+     Новые функции: солнце, вид из окна, подсветка по бюджету, избранное и сравнение,
+     ход стройки, расчёт-ссылка для WhatsApp
+     ===================================================================== */
+
+  /* ---------- Солнце: положение по дате и времени (упрощённые формулы NOAA, точность ~1°) ---------- */
+  const TZ = 6; // Бишкек, UTC+6
+  function sunPos(date, lat, lon) {
+    const rad = Math.PI / 180;
+    const d = date.getTime() / 864e5 + 2440587.5 - 2451545.0;  // дни от J2000
+    const g = (357.529 + 0.98560028 * d) * rad;                // средняя аномалия
+    const q = 280.459 + 0.98564736 * d;                        // средняя долгота
+    const L = (q + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * rad;
+    const e = (23.439 - 0.00000036 * d) * rad;
+    const ra = Math.atan2(Math.cos(e) * Math.sin(L), Math.cos(L)), dec = Math.asin(Math.sin(e) * Math.sin(L));
+    const gmst = (18.697374558 + 24.06570982441908 * d) % 24;
+    const H = (gmst * 15 + lon) * rad - ra;                    // часовой угол
+    const phi = lat * rad;
+    const alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+    const az = Math.atan2(-Math.sin(H), Math.tan(dec) * Math.cos(phi) - Math.sin(phi) * Math.cos(H));
+    return { az: (az / rad + 360) % 360, alt: alt / rad };
+  }
+  const localDate = (ymd, hours) => { const [y, m, d] = ymd.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d, 0, 0) + (hours - TZ) * 3600e3); };
+  const hhmm = (h) => { const mm = Math.round(h * 60); return `${String(Math.floor(mm / 60)).padStart(2, '0')}:${String(mm % 60).padStart(2, '0')}`; };
+  const SUN_DAYS = () => { const y = new Date().getFullYear(); return [
+    { id: 'summer', name: 'Лето', ymd: `${y}-06-21` }, { id: 'spring', name: 'Весна/осень', ymd: `${y}-03-21` },
+    { id: 'winter', name: 'Зима', ymd: `${y}-12-21` }, { id: 'today', name: 'Сегодня', ymd: new Date(Date.now() + TZ * 3600e3).toISOString().slice(0, 10) }]; };
+  // Куски фасада с окнами квартиры (метры участка)
+  function aptWindows(p, b, a) {
+    const key = `${b.id}|${a.n}`; p._aw = p._aw || {};
+    if (p._aw[key]) return p._aw[key];
+    const pcs = engine && engine.facade(p, b); if (!pcs) return [];
+    const lp = aptLocalPoly(p, b, a);
+    return (p._aw[key] = pcs.filter((pc) => pc.win && distToPoly(pc.c, lp) < 1.8));
+  }
+  // Часы, когда солнце попадает в окна квартиры (с учётом домов этого ЖК), шаг 15 минут
+  function sunHours(p, b, f, a, ymd) {
+    const wins = aptWindows(p, b, a); if (!wins.length) return { slots: [], total: 0 };
+    const z = floorBase(p, f) + 1.5, ll = toLngLat(p, centroid(b.fp)), slots = [];
+    for (let t = 4; t < 22; t += 0.25) {
+      const s = sunPos(localDate(ymd, t), ll[1], ll[0]);
+      if (s.alt < 2) { slots.push(false); continue; }
+      const azL = s.az + (p.rotation || 0), A = azL * Math.PI / 180; // азимут в системе участка
+      const sd = [Math.sin(A), Math.cos(A)];
+      slots.push(wins.some((w) => w.n[0] * sd[0] + w.n[1] * sd[1] > 0.17 && !engine.sunBlocked(p, [w.c[0], w.c[1], z], azL, s.alt)));
+    }
+    return { slots, total: slots.filter(Boolean).length / 4 };
+  }
+  function sunRanges(slots) {
+    const out = []; let st = null;
+    slots.forEach((v, i) => { const t = 4 + i * 0.25; if (v && st == null) st = t; if (!v && st != null) { out.push([st, t]); st = null; } });
+    if (st != null) out.push([st, 22]);
+    return out;
+  }
+  const sunState = { day: 'spring', hour: 13, on: false };
+  function applySun(p) {
+    const d = SUN_DAYS().find((x) => x.id === sunState.day), ll = toLngLat(p, centroid(p.plot));
+    const s = sunPos(localDate(d.ymd, sunState.hour), ll[1], ll[0]);
+    if (engine) engine.setSun(true, s.az, s.alt);
+    sunState.on = true;
+    return s;
+  }
+  function sunOff() { if (sunState.on && engine) { engine.setSun(false); sunState.on = false; } }
+  function sunHtml() {
+    return `<div class="sunbox" id="sunBox"><div class="sun-head"><h3>☀ Солнце в квартире</h3><span class="small">дома этого ЖК учтены</span></div>
+      <div class="sun-days">${SUN_DAYS().map((d) => `<button class="bchip ${d.id === sunState.day ? 'on' : ''}" data-sday="${d.id}">${d.name}</button>`).join('')}</div>
+      <div class="sun-bar" id="sunBar"></div><div class="sun-ticks"><span>4:00</span><span>10:00</span><span>16:00</span><span>22:00</span></div>
+      <div class="sun-sum" id="sunSum">Считаю…</div>
+      <label class="sun-time">Время на 3D: <b id="sunT"></b></label><input type="range" id="sunH" min="5" max="21" step="0.25" value="${sunState.hour}">
+      <div class="small">Двигайте ползунок — на модели дома двигаются тени.</div></div>`;
+  }
+  function bindSun(p, b, f, a) {
+    const box = $('#sunBox'); if (!box) return;
+    const draw = () => {
+      if (!$('#sunBox')) return;
+      const d = SUN_DAYS().find((x) => x.id === sunState.day);
+      if (!engine || !engine.facade(p, b)) { setTimeout(draw, 400); return; }
+      const r = sunHours(p, b, f, a, d.ymd), rg = sunRanges(r.slots);
+      $('#sunBar').innerHTML = rg.map(([s, e]) => `<i style="left:${(s - 4) / 18 * 100}%;width:${(e - s) / 18 * 100}%"></i>`).join('') + `<u id="sunNow" style="left:${(sunState.hour - 4) / 18 * 100}%"></u>`;
+      $('#sunSum').innerHTML = r.total
+        ? `Солнце в окнах: <b>${rg.map(([s, e]) => `${hhmm(s)}–${hhmm(e)}`).join(', ')}</b> · всего ${String(r.total).replace('.', ',')} ч (${d.name.toLowerCase()})`
+        : `Прямого солнца в окнах нет (${d.name.toLowerCase()}): окна на север или их закрывают соседние блоки`;
+    };
+    const moveSun = () => {
+      const s = applySun(p);
+      $('#sunT').textContent = `${hhmm(sunState.hour)} · ${s.alt > 0 ? 'солнце на высоте ' + Math.round(s.alt) + '°' : 'солнце за горизонтом'}`;
+      const n = $('#sunNow'); if (n) n.style.left = `${(sunState.hour - 4) / 18 * 100}%`;
+    };
+    box.querySelectorAll('[data-sday]').forEach((btn) => btn.onclick = () => { sunState.day = btn.dataset.sday; box.querySelectorAll('[data-sday]').forEach((x) => x.classList.toggle('on', x === btn)); draw(); moveSun(); });
+    $('#sunH').oninput = (e) => { sunState.hour = +e.target.value; moveSun(); };
+    draw(); moveSun();
+  }
+
+  /* ---------- Вид из окна: камера на высоте этажа смотрит наружу ---------- */
+  const SIDES = { N: 'север', E: 'восток', S: 'юг', W: 'запад' };
+  const sideOf = (az) => ['N', 'E', 'S', 'W'][Math.round((((az % 360) + 360) % 360) / 90) % 4];
+  let viewMode = null;
+  function openWindowView(p, b, f, a) {
+    const wins = aptWindows(p, b, a);
+    if (!wins.length) { openModal('<h2>Вид из окна</h2><p class="muted">Не удалось определить окна этой квартиры.</p>'); return; }
+    let vx = 0, vy = 0, cx = 0, cy = 0, L = 0;
+    for (const w of wins) { vx += w.n[0] * w.len; vy += w.n[1] * w.len; cx += w.c[0] * w.len; cy += w.c[1] * w.len; L += w.len; }
+    const nl = Math.hypot(vx, vy) || 1, n = [vx / nl, vy / nl], c = [cx / L, cy / L];
+    const from = [c[0] + n[0] * 2.5, c[1] + n[1] * 2.5], to = [c[0] + n[0] * 400, c[1] + n[1] * 400];
+    const alt = floorBase(p, f) + 1.6, az = (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360;
+    viewMode = { p, b, f, a };
+    map.setMaxPitch(85);
+    if (map.calculateCameraOptionsFromTo) {
+      const cam = map.calculateCameraOptionsFromTo(maplibregl.LngLat.convert(toLngLat(p, from)), alt, maplibregl.LngLat.convert(toLngLat(p, to)), Math.max(0, alt - 30));
+      map.flyTo({ ...cam, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 1800, essential: true });
+    } else {
+      map.flyTo({ center: toLngLat(p, [c[0] + n[0] * 60, c[1] + n[1] * 60]), zoom: 19, pitch: 84, bearing: az, padding: { top: 0, bottom: 0, left: 0, right: 0 }, duration: 1800 });
+    }
+    document.body.classList.add('window-view');
+    const photos = ((mediaCache[p.id] || {}).media || []).filter((m) => m.type === 'view' && (!m.block || m.block === b.id) && (!m.floorFrom || f >= m.floorFrom) && (!m.floorTo || f <= m.floorTo) && (!m.side || m.side === sideOf(az)));
+    let bar = $('#winBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'winBar'; document.body.append(bar); }
+    bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(az)]}</span></div>
+      <div class="wb-btns"><button data-wv="up" ${f >= b.floors ? 'disabled' : ''}>▲ этаж выше</button><button data-wv="down" ${f <= p.firstResidentialFloor ? 'disabled' : ''}>▼ ниже</button>
+      ${photos.length ? `<button data-wv="photo" class="hl">📷 Фото с дрона (${photos.length})</button>` : ''}<button data-wv="exit" class="x">✕ Выйти</button></div>
+      <p>Соседние дома на карте — по данным OpenStreetMap, высоты примерные.${photos.length ? '' : ' Настоящее фото с этой высоты появится, когда его загрузит менеджер.'}</p>`;
+    bar.querySelectorAll('[data-wv]').forEach((btn) => btn.onclick = () => {
+      const k = btn.dataset.wv;
+      if (k === 'exit') return closeWindowView(true);
+      if (k === 'photo') return openModal(photos.map((m) => `<figure class="wv-photo"><img src="${m.url}" alt=""><figcaption>${esc(m.caption || 'Вид из окна')} · ${esc(m.date)}</figcaption></figure>`).join(''), true);
+      const nf = f + (k === 'up' ? 1 : -1);
+      viewMode = null;
+      go(`#/${p.id}/${b.id}/${nf}/${a.n}`);
+      setTimeout(() => openWindowView(p, b, nf, a), 60);
+    });
+  }
+  function closeWindowView(fly) {
+    if (!viewMode) return;
+    const { p, b, a } = viewMode; viewMode = null;
+    document.body.classList.remove('window-view');
+    const bar = $('#winBar'); if (bar) bar.remove();
+    if (fly && state.apt) flyApt(p, b, a);
+    setTimeout(() => { if (!viewMode) map.setMaxPitch(75); }, 1700);
+  }
+
+  /* ---------- Подсветка на 3D квартир, подходящих по бюджету ---------- */
+  function updateMatches(tries = 0) {
+    if (!engine) return;
+    for (const p of PROJECTS) {
+      let quads = null;
+      if (budgetDone() && visibleProjects().includes(p) && state.budget.down >= p.installment.downPayment) {
+        const maxPrice = state.budget.down + state.budget.monthly * p.installment.months;
+        quads = [];
+        for (const b of p.blocks) {
+          if (!engine.facade(p, b)) { if (tries < 20) setTimeout(() => updateMatches(tries + 1), 500); return; }
+          for (const a of b.plan.apts) {
+            if (aptPrice(p, b, a) > maxPrice) continue;
+            const wins = aptWindows(p, b, a);
+            for (const f of floorsOf(p, b)) {
+              if (status(p, b, f, a) !== 'free') continue;
+              const z0 = floorBase(p, f) + 0.25, z1 = floorBase(p, f) + p.floorHeight - 0.35;
+              for (const w of wins) {
+                const d = [-w.n[1], w.n[0]], h = w.len / 2 - 0.15;
+                quads.push({ a: [w.c[0] - d[0] * h, w.c[1] - d[1] * h], b: [w.c[0] + d[0] * h, w.c[1] + d[1] * h], n: w.n, z0, z1 });
+              }
+            }
+          }
+        }
+      }
+      engine.setMatches(p, quads);
+    }
+  }
+
+  /* ---------- Избранное и сравнение ---------- */
+  let favs = [];
+  try { favs = JSON.parse(localStorage.getItem('yurta_favs') || '[]').filter((k) => typeof k === 'string'); } catch (e) {}
+  const favKey = (p, b, f, a) => `${p.id}/${b.id}/${f}/${a.n}`;
+  const isFav = (k) => favs.includes(k);
+  function toggleFav(k) {
+    favs = isFav(k) ? favs.filter((x) => x !== k) : [...favs, k].slice(-8);
+    try { localStorage.setItem('yurta_favs', JSON.stringify(favs)); } catch (e) {}
+    document.querySelectorAll(`[data-fav="${k}"]`).forEach((el) => el.classList.toggle('on', isFav(k)));
+    renderCmpBar();
+  }
+  const favHtml = (k, big) => `<button class="fav ${big ? 'big' : ''} ${isFav(k) ? 'on' : ''}" data-fav="${k}" title="В избранное" aria-label="В избранное">♥</button>`;
+  document.addEventListener('click', (e) => { const t = e.target.closest('[data-fav]'); if (t) { e.stopPropagation(); e.preventDefault(); toggleFav(t.dataset.fav); } }, true);
+  function resolveFav(k) {
+    const [pid, bid, f, n] = k.split('/'), p = PROJECTS.find((x) => x.id === pid), b = p && p.blocks.find((x) => x.id === bid), a = b && b.plan.apts.find((x) => x.n === +n);
+    return a ? { k, p, b, f: +f, a } : null;
+  }
+  const cmpBar = document.createElement('button'); cmpBar.id = 'cmpBar'; cmpBar.hidden = true; document.body.append(cmpBar);
+  cmpBar.onclick = () => openCompare();
+  function renderCmpBar() {
+    const n = favs.map(resolveFav).filter(Boolean).length;
+    cmpBar.hidden = !n;
+    cmpBar.innerHTML = `<span>♥</span> Избранное: <b>${n}</b> · ${n > 1 ? 'Сравнить' : 'Открыть'}`;
+  }
+  function miniPlan(p, b, a) {
+    const pl = b.plan;
+    return `<div class="mini-plan" style="aspect-ratio:${pl.w}/${pl.h}"><img src="${pl.img}" alt=""><svg viewBox="0 0 ${pl.w} ${pl.h}" preserveAspectRatio="none"><polygon points="${a.poly.map((q) => q.join(',')).join(' ')}"/></svg></div>`;
+  }
+  function openCompare() {
+    const items = favs.map(resolveFav).filter(Boolean).slice(-4);
+    if (!items.length) return;
+    const spring = SUN_DAYS()[1].ymd;
+    const rows = items.map((x) => {
+      const price = aptPrice(x.p, x.b, x.a), inst = x.p.installment, st = status(x.p, x.b, x.f, x.a);
+      const sun = engine && engine.facade(x.p, x.b) ? sunHours(x.p, x.b, x.f, x.a, spring).total : null;
+      return { ...x, price, st, m2: priceM2(x.p, x.b), mon: monthly(x.p, price, inst.downPayment, inst.months), sun };
+    });
+    const many = rows.length > 1;
+    const best = (vals, dir) => { const v = vals.filter((z) => z != null); return many && v.length ? (dir < 0 ? Math.min(...v) : Math.max(...v)) : null; };
+    const bPrice = best(rows.map((r) => r.price), -1), bMon = best(rows.map((r) => r.mon), -1), bArea = best(rows.map((r) => r.a.area), 1), bSun = best(rows.map((r) => r.sun), 1);
+    const cell = (v, ok) => `<td class="${ok ? 'best' : ''}">${v}</td>`;
+    openModal(`<h2>${many ? 'Сравнение квартир' : 'Избранное'}</h2><p class="small" style="margin:4px 0 12px">${many ? 'Зелёным — лучшее значение. ' : ''}Платёж — при минимальном взносе и максимальном сроке. Солнце — весной/осенью.</p>
+      <div class="cmp-wrap"><table class="cmp"><tbody>
+        <tr><th></th>${rows.map((r) => `<td>${miniPlan(r.p, r.b, r.a)}</td>`).join('')}</tr>
+        <tr><th>ЖК</th>${rows.map((r) => `<td><b>${esc(r.p.name)}</b><div class="small">${districtName(r.p.district)} р-н</div></td>`).join('')}</tr>
+        <tr><th>Квартира</th>${rows.map((r) => `<td>Блок ${r.b.id} · ${r.f} эт. · кв. ${aptNumber(r.p, r.b, r.f, r.a)}</td>`).join('')}</tr>
+        <tr><th>Комнат</th>${rows.map((r) => `<td>${roomsLabel(r.a)}${euroTag(r.a)}</td>`).join('')}</tr>
+        <tr><th>Площадь</th>${rows.map((r) => cell(area(r.a.area), r.a.area === bArea)).join('')}</tr>
+        <tr><th>Цена</th>${rows.map((r) => cell(som(r.price), r.price === bPrice)).join('')}</tr>
+        <tr><th>За м²</th>${rows.map((r) => `<td>${som(r.m2)}</td>`).join('')}</tr>
+        <tr><th>Взнос от</th>${rows.map((r) => `<td>${som(r.p.installment.downPayment)}</td>`).join('')}</tr>
+        <tr><th>Платёж в месяц</th>${rows.map((r) => cell(`<b>${som(r.mon)}</b><div class="small">${r.p.installment.months} мес.</div>`, r.mon === bMon)).join('')}</tr>
+        <tr><th>Солнце в окнах</th>${rows.map((r) => cell(r.sun == null ? '—' : `${String(r.sun).replace('.', ',')} ч в день`, r.sun != null && r.sun === bSun)).join('')}</tr>
+        <tr><th>Сдача</th>${rows.map((r) => `<td>${esc(r.p.completion)}</td>`).join('')}</tr>
+        <tr><th>Статус</th>${rows.map((r) => `<td><span class="st ${r.st}">${ST_LABEL[r.st]}</span></td>`).join('')}</tr>
+        <tr><th></th>${rows.map((r) => `<td><button class="cta" style="margin:0;padding:10px" data-open="#/${r.k}">Открыть</button><button class="link-btn" data-unfav="${r.k}" style="margin-top:6px">Убрать</button></td>`).join('')}</tr>
+      </tbody></table></div>${favs.length > 4 ? '<p class="small">Показаны 4 последние квартиры из избранного.</p>' : ''}`, true);
+    modalCard.querySelectorAll('[data-open]').forEach((el) => el.onclick = () => { closeModal(); go(el.dataset.open); });
+    modalCard.querySelectorAll('[data-unfav]').forEach((el) => el.onclick = () => { toggleFav(el.dataset.unfav); if (favs.length) openCompare(); else closeModal(); });
+  }
+
+  /* ---------- Ход строительства ---------- */
+  const mediaCache = {};
+  async function loadMedia(pid, force) {
+    if (mediaCache[pid] && !force) return mediaCache[pid];
+    try { const r = await fetch('/api/media?pid=' + encodeURIComponent(pid)); mediaCache[pid] = await r.json(); } catch (e) { mediaCache[pid] = { media: [], progress: null }; }
+    return mediaCache[pid];
+  }
+  const STAGES = ['Котлован', 'Фундамент', 'Каркас', 'Стены и кровля', 'Фасад и окна', 'Отделка и благоустройство', 'Сдача'];
+  const progressHtml = () => `<div class="progress-box"><div class="section-title" style="margin-top:0"><h3>🏗 Ход строительства</h3><span class="small" id="progUpd"></span></div><div id="progBody" class="small">Загрузка…</div></div>`;
+  async function bindProgress(p) {
+    const d = await loadMedia(p.id); const body = $('#progBody'); if (!body || state.project !== p) return;
+    const pr = d.progress, photos = (d.media || []).filter((m) => m.type === 'progress').sort((x, y) => (y.date > x.date ? 1 : -1));
+    const staff = !!window.YurtaStaff;
+    $('#progUpd').textContent = pr ? 'обновлено ' + new Date(pr.updatedAt).toLocaleDateString('ru-RU') : '';
+    body.innerHTML = `
+      ${pr ? `<div class="prog-line"><div class="prog-fill" style="width:${pr.percent}%"></div></div><div class="prog-txt"><b>${pr.percent}% готовности</b>${pr.stage ? ' · этап: ' + esc(pr.stage) : ''}</div>` : `<div class="prog-txt">Плановая сдача — <b>${esc(p.completion)}</b>. Процент готовности появится после первого отчёта.</div>`}
+      ${photos.length ? `<div class="prog-photos">${photos.map((m, i) => `<button class="pp" data-ph="${i}"><img src="${m.url}" alt="" loading="lazy"><span>${new Date(m.date).toLocaleDateString('ru-RU', { month: 'short', year: 'numeric' })}</span></button>`).join('')}</div>` : '<div class="small" style="margin-top:6px">Фото со стройки будут добавляться каждый месяц.</div>'}
+      ${staff ? '<button class="link-btn" id="progAdd" style="margin-top:8px">＋ Добавить фото / обновить готовность</button>' : ''}`;
+    body.querySelectorAll('[data-ph]').forEach((btn) => btn.onclick = () => {
+      const m = photos[+btn.dataset.ph];
+      openModal(`<figure class="wv-photo"><img src="${m.url}" alt=""><figcaption>${esc(m.caption || 'Ход строительства')} · ${new Date(m.date).toLocaleDateString('ru-RU')}${staff ? ' · <button class="link-btn" id="phDel">удалить</button>' : ''}</figcaption></figure>`, true);
+      const del = $('#phDel'); if (del) del.onclick = async () => { if (!confirm('Удалить фото?')) return; await fetch('/api/media/' + m.id, { method: 'DELETE' }); closeModal(); await loadMedia(p.id, true); bindProgress(p); };
+    });
+    const add = $('#progAdd'); if (add) add.onclick = () => openMediaForm(p, pr);
+  }
+  // Сжимаем фото в браузере до 2000 px, чтобы загрузка была быстрой
+  function shrinkImage(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image(), url = URL.createObjectURL(file);
+      img.onload = () => {
+        const k = Math.min(1, 2000 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('Не удалось открыть фото')); img.src = url;
+    });
+  }
+  function openMediaForm(p, pr) {
+    openModal(`<h2>Стройка и фото — ${esc(p.name)}</h2>
+      <form id="mf" class="mform">
+        <fieldset><legend>Готовность</legend>
+          <label>Процент готовности<input name="percent" type="number" min="0" max="100" value="${pr ? pr.percent : ''}" placeholder="например, 35"></label>
+          <label>Этап<select name="stage">${STAGES.map((s) => `<option ${pr && pr.stage === s ? 'selected' : ''}>${s}</option>`).join('')}</select></label>
+          <button type="button" class="cta ghost" id="mfProg" style="margin-top:6px">Сохранить готовность</button></fieldset>
+        <fieldset><legend>Добавить фото</legend>
+          <label>Что на фото<select name="type"><option value="progress">Ход строительства</option><option value="view">Вид из окна (фото с дрона)</option></select></label>
+          <label>Фото<input name="file" type="file" accept="image/*" required></label>
+          <label>Дата съёмки<input name="date" type="date" value="${new Date().toISOString().slice(0, 10)}"></label>
+          <label>Подпись<input name="caption" maxlength="200" placeholder="например, залит 10 этаж блока 3"></label>
+          <div class="mf-view" hidden>
+            <label>Блок<select name="block"><option value="">любой</option>${p.blocks.map((b) => `<option>${b.id}</option>`).join('')}</select></label>
+            <label>Этажи с — по<span class="row2"><input name="floorFrom" type="number" min="1" placeholder="с"><input name="floorTo" type="number" min="1" placeholder="по"></span></label>
+            <label>Окна смотрят на<select name="side"><option value="">любую сторону</option><option value="N">север</option><option value="E">восток</option><option value="S">юг</option><option value="W">запад</option></select></label>
+          </div>
+          <div class="yc-err" id="mfErr" hidden></div>
+          <button class="cta" type="submit" style="margin-top:8px">Загрузить фото</button></fieldset>
+      </form>`);
+    const f = $('#mf'), err = (t) => { const e = $('#mfErr'); e.hidden = !t; e.textContent = t || ''; };
+    f.elements.type.onchange = () => { f.querySelector('.mf-view').hidden = f.elements.type.value !== 'view'; };
+    $('#mfProg').onclick = async () => {
+      const r = await fetch('/api/progress', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid: p.id, percent: f.elements.percent.value, stage: f.elements.stage.value }) });
+      if (!r.ok) return err((await r.json()).error || 'Ошибка');
+      await loadMedia(p.id, true); closeModal(); bindProgress(p);
+    };
+    f.onsubmit = async (e) => {
+      e.preventDefault(); err('');
+      const el = f.elements, file = el.file.files[0]; if (!file) return;
+      const btn = f.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Загружаю…';
+      try {
+        const image = await shrinkImage(file);
+        const r = await fetch('/api/media', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pid: p.id, image, type: el.type.value, date: el.date.value, caption: el.caption.value, block: el.block.value, floorFrom: el.floorFrom.value, floorTo: el.floorTo.value, side: el.side.value }) });
+        const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Ошибка');
+        await loadMedia(p.id, true); closeModal(); bindProgress(p);
+      } catch (ex) { err(ex.message); btn.disabled = false; btn.textContent = 'Загрузить фото'; }
+    };
+  }
+  window.addEventListener('yurta:staff', () => { if (state.project && !state.block) bindProgress(state.project); });
+
+  /* ---------- Расчёт: ссылка на страницу с графиком платежей (её можно сохранить как PDF) ---------- */
+  async function shareOffer(p, b, f, a, down, months) {
+    const offer = { pid: p.id, project: p.name, address: p.address, completion: p.completion, block: b.id, floor: f, floors: b.floors, apt: aptNumber(p, b, f, a),
+      rooms: roomsLabel(a), euro: !!a.euro, area: a.area, price: aptPrice(p, b, a), m2: priceM2(p, b), down, months,
+      planImg: b.plan.img, planW: b.plan.w, planH: b.plan.h, render: p.renders[0], poly: a.poly };
+    openModal('<h2>Готовлю расчёт…</h2>');
+    try {
+      const r = await fetch('/api/offers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ offer }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Ошибка');
+      const link = `${location.origin}/offer.html?id=${j.id}`;
+      const text = `ЖК ${p.name}, блок ${b.id}, ${f} этаж, кв. ${offer.apt} — ${offer.rooms}, ${area(a.area)}\nЦена ${som(offer.price)}, взнос ${som(down)}, ${months} мес. по ${som(monthly(p, offer.price, down, months))}\nГрафик платежей: ${link}`;
+      modalCard.innerHTML = `<button class="modal-close" data-close aria-label="Закрыть">✕</button><h2>Расчёт готов</h2>
+        <p class="muted" style="margin:6px 0 12px">Страница с квартирой, планировкой и графиком всех ${months} платежей. Отправьте её в WhatsApp или сохраните как PDF.</p>
+        <div class="offer-link"><input readonly value="${esc(link)}"><button class="link-btn" id="ofCopy">Копировать</button></div>
+        <a class="cta wa" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Отправить в WhatsApp</a>
+        <a class="cta ghost" href="${esc(link)}" target="_blank" rel="noopener">Открыть / скачать PDF</a>`;
+      $('#ofCopy').onclick = () => { try { navigator.clipboard.writeText(link); } catch (e) {} $('#ofCopy').textContent = 'Скопировано ✓'; };
+    } catch (e) { modalCard.innerHTML = `<button class="modal-close" data-close aria-label="Закрыть">✕</button><h2>Не получилось</h2><p class="muted">${esc(e.message)}</p>`; }
   }
 
   /* ---------- Заявка ---------- */
