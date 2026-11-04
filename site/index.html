@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Юрта — новостройки Бишкека в рассрочку</title>
+  <meta name="description" content="Карта новостроек Бишкека в 3D. Выберите дом, блок, этаж и квартиру — и сразу посчитайте рассрочку.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M6 40 Q32 4 58 40 Z' fill='%23d4572a'/%3E%3Crect x='10' y='40' width='44' height='16' rx='2' fill='%2314161a'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet">
+  <link href="css/style.css" rel="stylesheet">
+  <link href="css/chat.css" rel="stylesheet">
+</head>
+<body>
+  <div id="map"></div>
+
+  <header class="topbar">
+    <a class="logo" href="#" id="logoLink" aria-label="Юрта — на главную">
+      <svg viewBox="0 0 64 64" width="30" height="30" aria-hidden="true">
+        <path d="M6 38 Q32 4 58 38 Z" fill="var(--accent)"/>
+        <path d="M14 30 Q32 14 50 30" stroke="#fff" stroke-width="2.5" fill="none" opacity=".75"/>
+        <rect x="10" y="38" width="44" height="18" rx="2" fill="var(--ink)"/>
+        <rect x="27" y="44" width="10" height="12" fill="var(--accent)"/>
+      </svg>
+      <span>Юрта</span>
+    </a>
+    <span class="tagline">Новостройки Бишкека в рассрочку</span>
+  </header>
+
+  <aside class="panel" id="panel">
+    <div class="panel-grip" id="panelGrip"></div>
+    <div class="panel-body" id="panelBody"></div>
+  </aside>
+
+  <div class="tooltip" id="tooltip" hidden></div>
+
+  <div class="modal" id="modal" hidden>
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-card" id="modalCard"></div>
+  </div>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="js/data.js"></script>
+  <script src="js/model3d.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/chat.js"></script>
+</body>
+</html>
