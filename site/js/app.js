@@ -79,7 +79,7 @@
     // участки — светлая подложка под моделью
     map.addSource('y-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: PROJECTS.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring(p, p.plot)] } })) } });
     map.addLayer({ id: 'y-plots', type: 'fill', source: 'y-plots', paint: { 'fill-color': '#d9d4ca', 'fill-opacity': 0.9 } });
-    engine = window.Yurta3D.init(map, PROJECTS, { floorBase });
+    engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
     addMarkers();
@@ -162,7 +162,7 @@
       showTip(e.originalEvent, `<b>${esc(p.name)} · ${blockName(p, hit.block)}</b><br>${hit.floor} этаж · свободно ${freeCount(p, hit.block, hit.floor)} из ${hit.block.plan.apts.length}`);
     } else {
       setHover(null);
-      showTip(e.originalEvent, `<b>${esc(p.name)}</b><br>${hit.block ? blockName(p, hit.block) + ' · ' : ''}коммерция и сервисы`);
+      showTip(e.originalEvent, `<b>${esc(hit.label || 'Коммерческие помещения')}</b><br>${esc(p.name)}${hit.block ? ' · ' + blockName(p, hit.block) : ''}`);
     }
   }
   function setHover(p, b, f) {
@@ -205,7 +205,9 @@
     if (b.planUp != null) return b.planUp;
     const xs = b.fp.map((q) => q[0]), ys = b.fp.map((q) => q[1]);
     const vertical = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
-    const widePlan = b.plan.w > b.plan.h * 1.15;
+    // вытянутость плана считаем по самим квартирам, а не по размеру картинки (у картинок есть поля)
+    const all = b.plan.apts.flatMap((x) => x.poly), pw = Math.max(...all.map((q) => q[0])) - Math.min(...all.map((q) => q[0])), ph = Math.max(...all.map((q) => q[1])) - Math.min(...all.map((q) => q[1]));
+    const widePlan = pw > ph * 1.3;
     return vertical && widePlan ? 270 : 0; // план «лёжа» на вытянутом с севера на юг блоке
   }
   // Контур квартиры в метрах участка: план этажа «накладывается» на пятно блока с учётом поворота planUp
@@ -234,10 +236,35 @@
     const pts = [centroid(b.fp), ...b.fp];
     return zs.flatMap((z) => pts.map((q) => [q[0], q[1], z]));
   }
+  // Есть ли окна на этом месте фасада: сторона не глухая по плану и за стеной — квартира
+  const SIDE = { top: 0, right: 90, bottom: 180, left: 270 };
+  const angDiff = (x, y) => { const d = Math.abs(x - y) % 360; return d > 180 ? 360 - d : d; };
+  function facadeHasWindow(p, b, c, n) {
+    const az = azim(n[0], n[1]);
+    for (const sd of b.plan.blank || []) if (angDiff(az, (planUp(p, b) + SIDE[sd]) % 360) < 35) return false;
+    if (!b._lp) b._lp = b.plan.apts.map((x) => aptLocalPoly(p, b, x));
+    return [0.8, 1.8, 3.0].some((d) => { const q = [c[0] - n[0] * d, c[1] - n[1] * d]; return b._lp.some((pl) => pointInPoly(q, pl)); });
+  }
+  function distToPoly(pt, poly) {
+    if (pointInPoly(pt, poly)) return 0;
+    let best = Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const [ax, ay] = poly[i], [bx, by] = poly[(i + 1) % poly.length];
+      const L2 = (bx - ax) ** 2 + (by - ay) ** 2 || 1, t = Math.max(0, Math.min(1, ((pt[0] - ax) * (bx - ax) + (pt[1] - ay) * (by - ay)) / L2));
+      best = Math.min(best, Math.hypot(pt[0] - ax - t * (bx - ax), pt[1] - ay - t * (by - ay)));
+    }
+    return best;
+  }
+  // Камера на квартиру — со стороны, где у неё окна
   function aptFacing(p, b, a) {
-    const c = centroid(aptLocalPoly(p, b, a)), bc = centroid(b.fp);
+    const lp = aptLocalPoly(p, b, a), pcs = engine && engine.facade(p, b);
+    let vx = 0, vy = 0;
+    for (const pc of pcs || []) if (pc.win && distToPoly(pc.c, lp) < 1.8) { vx += pc.n[0] * pc.len; vy += pc.n[1] * pc.len; }
+    if (Math.hypot(vx, vy) > 0.5) return azim(vx, vy);
+    const c = centroid(lp), bc = centroid(b.fp);
     return azim(c[0] - bc[0], c[1] - bc[1]);
   }
+
 
   function flyAt(p, b, localAz, extra = {}) {
     // камера стоит со стороны localAz и смотрит на блок
@@ -299,6 +326,8 @@
 
   /* ---------- Панель ---------- */
   const backBtn = (href) => `<button class="back" data-go="${href}" aria-label="Назад"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>`;
+  // Хлебные крошки: каждая часть — ссылка на свой уровень
+  const crumbs = (back, parts) => `<nav class="crumbs" aria-label="Навигация">${backBtn(back)}${parts.map(([t, h], i) => (i ? '<span class="sep">/</span>' : '') + (h ? `<a href="${h}" data-go="${h}">${esc(t)}</a>` : `<b>${esc(t)}</b>`)).join('')}</nav>`;
   panelBody.addEventListener('click', (e) => { const t = e.target.closest('[data-go]'); if (t) go(t.dataset.go); });
   const visibleProjects = () => PROJECTS.filter((p) => state.district === 'all' || p.district === state.district);
   const districtName = (id) => (CFG.districts.find((d) => d.id === id) || {}).name || '';
@@ -383,8 +412,7 @@
   function renderList() {
     const list = visibleProjects();
     panelBody.innerHTML = `
-      <h1>Квартиры в рассрочку<br>на карте Бишкека</h1>
-      <p class="muted" style="margin:8px 0 14px">Укажите бюджет — покажем, что подходит. Или выберите дом на карте.</p>
+      <h1 class="h-home">Квартиры в рассрочку на карте Бишкека</h1>
       ${budgetHtml()}
       <div class="chips">${CFG.districts.map((d) => { const n = d.id === 'all' ? PROJECTS.length : PROJECTS.filter((p) => p.district === d.id).length; return `<button class="chip ${d.id === state.district ? 'active' : ''} ${n ? '' : 'zero'}" data-d="${d.id}">${d.name}<span class="cnt">${n}</span></button>`; }).join('')}</div>
       ${!list.length ? `<div class="empty">В этом районе пока нет объектов.<br>Скоро добавим.</div>` : budgetDone() ? resultsHtml(list) : list.map(cardHtml).join('')}`;
@@ -440,7 +468,7 @@
     const inst = p.installment;
     const m2 = m2Range(p);
     panelBody.innerHTML = `
-      <div class="crumbs">${backBtn('#/')}<span>Все объекты</span></div>
+      ${crumbs('#/', [['Все объекты', '#/'], [p.name]])}
       ${galleryHtml(p)}
       <div class="small" style="text-transform:uppercase;letter-spacing:.08em;font-weight:700">${esc(p.klass)}</div>
       <h1 style="margin-top:4px">ЖК ${esc(p.name)}</h1>
@@ -481,7 +509,7 @@
   function renderBlock(p, b) {
     const floors = floorsOf(p, b).reverse();
     panelBody.innerHTML = `
-      <div class="crumbs">${backBtn(`#/${p.id}`)}<span>${esc(p.name)}</span> / <b>${blockName(p, b)}</b></div>
+      ${crumbs(`#/${p.id}`, [['Все объекты', '#/'], [p.name, `#/${p.id}`], [blockName(p, b)]])}
       <h1>${blockName(p, b)}</h1>
       <p class="muted" style="margin:6px 0 0">${b.floors} этажей · ${b.plan.apts.length} квартир на этаже · жилые этажи с ${p.firstResidentialFloor}-го<br>
       ${som(priceM2(p, b))} за м² · свободно <b>${blockFree(p, b)}</b> квартир</p>
@@ -515,7 +543,7 @@
   function renderFloor(p, b, f) {
     const apts = b.plan.apts, inst = p.installment;
     panelBody.innerHTML = `
-      <div class="crumbs">${backBtn(`#/${p.id}/${b.id}`)}<span>${esc(p.name)} / ${blockName(p, b)}</span> / <b>${f} этаж</b></div>
+      ${crumbs(`#/${p.id}/${b.id}`, [[p.name, `#/${p.id}`], [blockName(p, b), `#/${p.id}/${b.id}`], [`${f} этаж`]])}
       <div class="apt-head"><h1>${f} этаж</h1>
         <div style="display:flex;gap:6px">
           <button class="back" data-go="#/${p.id}/${b.id}/${Math.min(b.floors, f + 1)}" aria-label="Этаж выше" ${f >= b.floors ? 'disabled' : ''}>▲</button>
@@ -550,7 +578,7 @@
     const minDown = Math.min(inst.downPayment, price);
     const maxDown = Math.max(minDown, Math.floor(price * 0.9 / 10000) * 10000);
     panelBody.innerHTML = `
-      <div class="crumbs">${backBtn(`#/${p.id}/${b.id}/${f}`)}<span>${esc(p.name)} / ${blockName(p, b)} / ${f} эт.</span> / <b>Кв. ${aptNumber(p, b, f, a)}</b></div>
+      ${crumbs(`#/${p.id}/${b.id}/${f}`, [[p.name, `#/${p.id}`], [blockName(p, b), `#/${p.id}/${b.id}`], [`${f} эт.`, `#/${p.id}/${b.id}/${f}`], [`Кв. ${aptNumber(p, b, f, a)}`]])}
       <div class="apt-head">
         <div><h1>${roomsLabel(a)}</h1><p class="muted" style="margin:4px 0 0">${area(a.area)} · ${f} этаж из ${b.floors} · ${blockName(p, b).toLowerCase()}</p>${a.euro ? `<p class="small" style="margin:4px 0 0">💬 ${euroNote(a)}</p>` : ''}</div>
         <span class="st ${st}" style="font-size:12px;font-weight:700;padding:5px 10px;border-radius:999px;white-space:nowrap">${ST_LABEL[st]}</span>

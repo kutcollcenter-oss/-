@@ -222,7 +222,7 @@
     const { x0, y0, x1, y1, hW, hE } = r;
     const h = (x) => hW + (hE - hW) * (x - x0) / (x1 - x0);
     const slat = lambert({ map: texSlats() }), dark = lambert({ color: 0x2c3036 }), col = lambert({ color: 0x3a3f46 });
-    const tag = (m) => { m.userData = { pid: p.id, podium: true }; root.add(m); pick.push(m); return m; };
+    const tag = (m) => { m.userData = { pid: p.id, podium: true, label: r.name || 'Проезд и въезд в подземный паркинг' }; root.add(m); pick.push(m); return m; };
     const D = y1 - y0, gx0 = r.gate ? r.gate.px0 : x1;
     // торцы
     tag(new THREE.Mesh(quad([x0, y1, 0], [x0, y0, 0], [x0, y0, hW], [x0, y1, hW], [0, 0, D / 2, 0, D / 2, hW / 3, 0, hW / 3]), slat));
@@ -346,24 +346,26 @@
     const white = lambert({ color: 0xf4f3ef });
     const roofMat = lambert({ color: 0x8f9397 });
     const darkMat = lambert({ color: 0x2a2f36 });
-    const blankMat = lambert({ color: p.blankColor || 0xeeede9 });
+    const blankMat = lambert({ color: p.blankColor || 0xe9e8e3 });
     const pick = [];
+    const labelNew = (from, label) => { for (const m of root.children.slice(from)) if (m.isMesh || m.isGroup) { m.traverse((x) => { if (x.isMesh) { x.userData = { pid: p.id, podium: true, label }; pick.push(x); } }); } };
 
     // Объёмы стилобата / коммерции / детсада
     for (const v of p.volumes || []) {
       const mat = v.tex === 'kinder' ? kinderMat : v.tex === 'parkade' ? parkadeMat : shopMat;
       const w = new THREE.Mesh(wallGeometry(v.pts, v.base, v.top, BAY * 2 * 4 / 2, v.floorH * 2, v.base), mat);
-      w.userData = { pid: p.id, podium: true };
+      const label = v.name || (v.tex === 'kinder' ? 'Детский сад' : v.tex === 'parkade' ? 'Многоуровневый паркинг' : 'Коммерческие помещения');
+      w.userData = { pid: p.id, podium: true, label };
       root.add(w); pick.push(w);
-      const roof = flat(v.pts, v.top, lambert({ color: v.roof || 0xbdb8ae })); roof.userData = { pid: p.id, podium: true };
+      const roof = flat(v.pts, v.top, lambert({ color: v.roof || 0xbdb8ae })); roof.userData = { pid: p.id, podium: true, label: v.roofName || label };
       root.add(roof); pick.push(roof);
       root.add(new THREE.Mesh(wallGeometry(offsetPoly(v.pts, 0.15), v.top - 0.3, v.top + 0.9, 1, 1), white)); // парапет
     }
     for (const s of p.surfaces || []) root.add(flat(s.pts, s.z, lambert({ color: s.color })));
     for (const o of p.ovals || []) root.add(oval(o.c, o.rx, o.ry, o.z, lambert({ color: o.color })));
     for (const r of p.ramps || []) buildRamp(root, r, pick, p);
-    for (const v of p.vaults || []) buildVault(root, v);
-    for (const d of p.downRamps || []) buildDownRamp(root, d);
+    for (const v of p.vaults || []) { const n = root.children.length; buildVault(root, v); labelNew(n, 'Въезд в подземный паркинг'); }
+    for (const d of p.downRamps || []) { const n = root.children.length; buildDownRamp(root, d); labelNew(n, 'Въезд в подземный паркинг −1/−2'); }
     buildParking(root, p.parking || [], seed);
 
     // Жилые блоки
@@ -384,25 +386,45 @@
       // коммерческий этаж в пятне блока
       if (p.residentialBase > p.blockBase) {
         const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, p.residentialBase, BAY * 8, (p.residentialBase - p.blockBase) * 2, p.blockBase), shopMat);
-        w.userData = { pid: p.id, block: b.id }; bg.add(w); pick.push(w);
+        w.userData = { pid: p.id, block: b.id, label: 'Коммерческие помещения' }; bg.add(w); pick.push(w);
       }
-      // Глухие торцы (по рендерам): короткие стороны вытянутых блоков — без окон
-      const ends = new Set();
-      if (p.blankEnds) {
-        const xs = fp.map((q) => q[0]), ys = fp.map((q) => q[1]);
-        const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
-        if (Math.max(w, h) / Math.min(w, h) > 1.2) {
-          const k = h > w ? 1 : 0, lo = Math.min(...fp.map((q) => q[k])), hi = Math.max(...fp.map((q) => q[k]));
-          fp.forEach((a, i) => { const c = fp[(i + 1) % fp.length];
-            if ((Math.abs(a[k] - lo) < 1.5 && Math.abs(c[k] - lo) < 1.5) || (Math.abs(a[k] - hi) < 1.5 && Math.abs(c[k] - hi) < 1.5)) ends.add(i); });
+      // Фасад по кусочкам ~3 м: окна только там, где за стеной квартира (по плану этажа),
+      // глухая стена — у лестниц/лифтов и на сторонах, которые на плане без окон (plan.blank)
+      const walls = new THREE.Mesh(new THREE.BufferGeometry(), facadeMat);
+      const blockPick = [walls], pieces = [];
+      {
+        const pos = [], uv = [], idx = [], bpos = [];
+        const v0 = 0, v1 = (top - p.residentialBase) / (p.floorHeight * ATLAS_FLOORS), uSize = BAY * ATLAS_BAYS;
+        let u0 = 0;
+        fp.forEach((a, i) => {
+          const c = fp[(i + 1) % fp.length];
+          const len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 0.01) return;
+          const dx = (c[0] - a[0]) / len, dy = (c[1] - a[1]) / len, n = [dy, -dx];
+          const m = Math.max(1, Math.round(len / BAY)), pl = len / m;
+          for (let k = 0; k < m; k++) {
+            const A = [a[0] + dx * pl * k, a[1] + dy * pl * k], B = [a[0] + dx * pl * (k + 1), a[1] + dy * pl * (k + 1)];
+            const mid = [(A[0] + B[0]) / 2, (A[1] + B[1]) / 2];
+            const win = api.isWindow ? api.isWindow(p, b, mid, n) : true;
+            pieces.push({ c: mid, n, len: pl, win });
+            const ua = u0 + pl * k / uSize, ub = u0 + pl * (k + 1) / uSize;
+            const target = win ? pos : bpos, base = target.length / 3;
+            target.push(A[0], A[1], p.residentialBase, B[0], B[1], p.residentialBase, B[0], B[1], top, A[0], A[1], top);
+            if (win) { uv.push(ua, v0, ub, v0, ub, v1, ua, v1); idx.push(base, base + 1, base + 2, base, base + 2, base + 3); }
+          }
+          u0 = Math.round((u0 + len / uSize) * 4) / 4;
+        });
+        const g = new THREE.BufferGeometry();
+        g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+        g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+        g.setIndex(idx); g.computeVertexNormals();
+        walls.geometry = g;
+        if (bpos.length) {
+          const bi = []; for (let q = 0; q < bpos.length / 3; q += 4) bi.push(q, q + 1, q + 2, q, q + 2, q + 3);
+          const bg2 = new THREE.BufferGeometry();
+          bg2.setAttribute('position', new THREE.Float32BufferAttribute(bpos, 3)); bg2.setIndex(bi); bg2.computeVertexNormals();
+          const bw = new THREE.Mesh(bg2, blankMat); bw.userData = { pid: p.id, block: b.id };
+          bg.add(bw); pick.push(bw); blockPick.push(bw);
         }
-      }
-      const walls = new THREE.Mesh(wallGeometry(fp, p.residentialBase, top, BAY * ATLAS_BAYS, p.floorHeight * ATLAS_FLOORS, p.residentialBase, ends), facadeMat);
-      const blockPick = [walls];
-      for (const i of ends) {
-        const a = fp[i], c = fp[(i + 1) % fp.length];
-        const bw = new THREE.Mesh(quad([a[0], a[1], p.residentialBase], [c[0], c[1], p.residentialBase], [c[0], c[1], top], [a[0], a[1], top]), blankMat);
-        bw.userData = { pid: p.id, block: b.id }; bg.add(bw); pick.push(bw); blockPick.push(bw);
       }
       walls.userData = { pid: p.id, block: b.id };
       bg.add(walls); pick.push(walls);
@@ -438,7 +460,7 @@
         bg.add(slab(offsetPoly(fp, 0.15), top + 1.1, top + 1.3, darkMat));
       }
       instanced(bg, fins, finMat); instanced(bg, bands, finMat);
-      blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick };
+      blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick, pieces };
     }
 
     // Деревья
@@ -553,10 +575,10 @@
       }
       if (!best) return null;
       const { hit, L } = best, p = L.p, ud = hit.object.userData;
-      if (ud.podium) return { project: p, podium: true };
+      if (ud.podium) return { project: p, podium: true, label: ud.label };
       const b = p.blocks.find((x) => x.id === ud.block);
       const z = L.built.root.worldToLocal(hit.point.clone()).z;
-      if (z < p.residentialBase - 0.01) return { project: p, block: b, podium: true };
+      if (z < p.residentialBase - 0.01) return { project: p, block: b, podium: true, label: ud.label || 'Коммерческие помещения' };
       const f = Math.min(b.floors, Math.max(p.firstResidentialFloor, p.firstResidentialFloor + Math.floor((z - p.residentialBase) / p.floorHeight)));
       return { project: p, block: b, floor: f };
     }
@@ -598,7 +620,9 @@
       for (const id in layers) { const L = layers[id]; if (L.built) L.built.setFocus(p && p.id === id && b ? b.id : null, targets); }
       requestAnimationFrame(occAll);
     }
-    return { pick, highlight, highlightApt, focusBlock };
+    // Кусочки фасада блока (центр, нормаль, есть ли окна) — для камеры «со стороны окон»
+    const facade = (p, b) => { const L = layers[p.id]; return L && L.built ? L.built.blockInfo[b.id].pieces : null; };
+    return { pick, highlight, highlightApt, focusBlock, facade };
   }
 
   window.Yurta3D = { init };

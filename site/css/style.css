@@ -214,3 +214,22 @@ h3 { font-size: 15px; font-weight: 700; }
 .b-bad > div[data-go] { padding: 4px 0; cursor: pointer; }
 .pmarker.dim .pill, .pmarker.dim .stem, .pmarker.dim .dot { opacity: .4; filter: grayscale(1); }
 .euro { display: inline-block; font-size: 10px; font-weight: 700; color: var(--ink-3); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; margin-left: 4px; vertical-align: 1px; text-transform: lowercase; }
+
+/* Компактная главная: фильтры занимают меньше места, ЖК видно сразу */
+.h-home { font-size: 21px; line-height: 1.2; margin-bottom: 12px; }
+.budget { padding: 12px; }
+.b-head { margin-bottom: 6px; font-size: 14px; }
+.b-q { font-size: 13px; margin: 2px 0 8px; }
+.bchips, .panel-body > .chips { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; margin-right: -20px; padding-right: 20px; }
+.bchips::-webkit-scrollbar, .panel-body > .chips::-webkit-scrollbar { display: none; }
+.bchip, .chips .chip { flex: none; white-space: nowrap; }
+.bchip { padding: 7px 11px; font-size: 12.5px; }
+.bcustom { margin-top: 6px; }
+.bcustom input { padding: 7px 10px; font-size: 13px; }
+.panel-body > .chips { margin: 12px -20px 14px 0; }
+.b-done { padding: 7px 10px; margin-bottom: 6px; font-size: 13px; }
+
+/* Хлебные крошки-ссылки */
+.crumbs a { color: var(--ink-2); text-decoration: none; border-radius: 6px; padding: 2px 4px; margin: 0 -2px; }
+.crumbs a:hover { color: var(--accent-2); background: #fdf3ef; }
+.crumbs .sep { color: var(--ink-3); }
