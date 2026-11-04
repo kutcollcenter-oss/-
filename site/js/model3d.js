@@ -215,23 +215,29 @@
     g.font = 'bold 34px Arial'; g.fillText(sub, 110, 68);
     return new THREE.CanvasTexture(c);
   }
-  // Заезд в подземный паркинг со скатной кровлей и порталом (уклон вдоль x)
+  // Тёмный корпус-рампа вдоль фасада: подъём с улицы на кровлю стилобата (3 этаж) и спуск в паркинг.
+  // Наклонная кровля: низ у улицы (hF), верх примыкает к двору на кровле (hBk), как на рендерах.
   function buildRamp(root, r, pick, p) {
-    const { x0, y0, x1, y1, hA, hB } = r;
-    const slat = lambert({ map: texSlats() });
-    const L = x1 - x0;
-    const walls = [
-      quad([x0, y0, 0], [x1, y0, 0], [x1, y0, hB], [x0, y0, hA], [0, 0, L / 2, 0, L / 2, hB / 3, 0, hA / 3]),
-      quad([x1, y1, 0], [x0, y1, 0], [x0, y1, hA], [x1, y1, hB], [0, 0, L / 2, 0, L / 2, hA / 3, 0, hB / 3]),
-      quad([x0, y1, 0], [x0, y0, 0], [x0, y0, hA], [x0, y1, hA], [0, 0, (y1 - y0) / 2, 0, (y1 - y0) / 2, hA / 3, 0, hA / 3]),
-      quad([x1, y0, 0], [x1, y1, 0], [x1, y1, hB], [x1, y0, hB], [0, 0, (y1 - y0) / 2, 0, (y1 - y0) / 2, hB / 3, 0, hB / 3]),
-    ];
-    for (const g of walls) { const m = new THREE.Mesh(g, slat); m.userData = { pid: p.id, podium: true }; root.add(m); pick.push(m); }
-    const o = 0.7, roofMat = lambert({ color: 0x3c4148 });
-    root.add(new THREE.Mesh(quad([x0 - o, y0 - o, hA + 0.15], [x1 + o, y0 - o, hB + 0.15], [x1 + o, y1 + o, hB + 0.15], [x0 - o, y1 + o, hA + 0.15]), roofMat));
-    // белый пояс по фасаду, как на рендере
-    const band = lambert({ color: 0xf2f1ec });
-    root.add(new THREE.Mesh(quad([x0, y0 - 0.06, hA * 0.62], [x1, y0 - 0.06, hB * 0.62], [x1, y0 - 0.06, hB * 0.62 + 0.45], [x0, y0 - 0.06, hA * 0.62 + 0.45]), band));
+    const { x0, y0, x1, y1, hF, hBk } = r;
+    const slat = lambert({ map: texSlats() }), dark = lambert({ color: 0x2c3036 }), col = lambert({ color: 0x3a3f46 });
+    const tag = (m) => { m.userData = { pid: p.id, podium: true }; root.add(m); pick.push(m); return m; };
+    const D = y1 - y0;
+    // торцы-трапеции
+    tag(new THREE.Mesh(quad([x0, y0, 0], [x0, y1, 0], [x0, y1, hBk], [x0, y0, hF], [0, 0, D / 2, 0, D / 2, hBk / 3, 0, hF / 3]), slat));
+    tag(new THREE.Mesh(quad([x1, y1, 0], [x1, y0, 0], [x1, y0, hF], [x1, y1, hBk], [0, 0, D / 2, 0, D / 2, hF / 3, 0, hBk / 3]), slat));
+    // задняя стена (к стилобату) и затенённая глубина за колоннадой
+    tag(new THREE.Mesh(quad([x0, y1, 0], [x1, y1, 0], [x1, y1, hBk], [x0, y1, hBk]), dark));
+    root.add(new THREE.Mesh(quad([x0, y0 + 2.2, 0], [x1, y0 + 2.2, 0], [x1, y0 + 2.2, hF + 0.6], [x0, y0 + 2.2, hF + 0.6]), lambert({ color: 0x1b1e22 })));
+    // пандус внутри: с улицы (запад) поднимается к уровню двора (восток)
+    const rz = r.rampTo || 9;
+    root.add(new THREE.Mesh(quad([x0 + 1, y0 + 0.4, 0.05], [x1 - 9, y0 + 0.4, Math.min(rz, hF - 0.4)], [x1 - 9, y0 + 2.1, Math.min(rz, hF - 0.4)], [x0 + 1, y0 + 2.1, 0.05]), lambert({ color: 0x8c8f93 })));
+    // колоннада по улице и светлая балка
+    for (let x = x0 + 3.2; x < x1 - 0.5; x += 3.2) root.add(boxMesh(x - 0.18, y0 - 0.2, 0, x + 0.18, y0 + 0.2, hF, col));
+    root.add(boxMesh(x0, y0 - 0.35, hF - 0.7, x1, y0 + 0.3, hF, lambert({ color: 0x3f444b })));
+    // наклонная кровля (тёмная, с нависанием) и второй уступ ближе к двору
+    const o = 0.9, roofMat = lambert({ color: 0x4a4f56 });
+    tag(new THREE.Mesh(quad([x0 - 0.3, y0 - o, hF + 0.1], [x1 + 0.3, y0 - o, hF + 0.1], [x1 + 0.3, y1, hBk], [x0 - 0.3, y1, hBk]), roofMat));
+    root.add(boxMesh(x0, y1 - 1.2, hBk - 0.2, x1, y1 + 0.4, hBk + 0.9, dark)); // уступ-ограждение у кромки двора
     if (r.portal) {
       const { px0, px1, h } = r.portal, frame = lambert({ color: 0x2a2f35 });
       root.add(boxMesh(px0 - 1.0, y0 - 1.4, 0, px0, y0 + 0.4, h + 1.0, frame));

@@ -183,10 +183,41 @@
     const v = p.view;
     map.flyTo({ center: toLngLat(p, centroid(p.plot)), zoom: v.zoom - (isMobile() ? 0.7 : 0), pitch: v.pitch, bearing: v.bearing, duration: 2200, padding: camPad(), essential: true });
   }
-  function flyBlock(p, b) {
-    const c = centroid(b.fp);
-    map.flyTo({ center: toLngLat(p, c), zoom: p.view.zoom + 0.35 - (isMobile() ? 0.6 : 0), pitch: 58, bearing: p.view.bearing, duration: 1600, padding: camPad(), essential: true });
+  /* Камера смотрит на блок снаружи комплекса, а на квартиру — со стороны её окон.
+     Направления — «азимуты» в метрах участка: 0° = север (+y), 90° = восток (+x). */
+  const DEG = 180 / Math.PI;
+  const azim = (dx, dy) => (Math.atan2(dx, dy) * DEG + 360) % 360;
+  const toMapBearing = (p, localAz) => localAz - (p.rotation || 0); // поворот модели против часовой
+  function blockFacing(p, b) {
+    const cs = p.blocks.map((x) => centroid(x.fp));
+    const pc = [cs.reduce((s, c) => s + c[0], 0) / cs.length, cs.reduce((s, c) => s + c[1], 0) / cs.length];
+    const bc = centroid(b.fp);
+    let vx = bc[0] - pc[0], vy = bc[1] - pc[1];
+    if (Math.hypot(vx, vy) < 1) vy = -1; // центральный блок — смотрим с юга
+    // привязываем к ближайшему фасаду (оси x/y участка)
+    return Math.abs(vx) > Math.abs(vy) ? (vx > 0 ? 90 : 270) : (vy > 0 ? 0 : 180);
   }
+  // Куда смотрят окна квартиры: по положению квартиры на плане этажа
+  function planUp(p, b) {
+    if (b.planUp != null) return b.planUp;
+    const xs = b.fp.map((q) => q[0]), ys = b.fp.map((q) => q[1]);
+    const vertical = Math.max(...ys) - Math.min(...ys) > Math.max(...xs) - Math.min(...xs);
+    const widePlan = b.plan.w > b.plan.h * 1.15;
+    return vertical && widePlan ? 270 : 0; // план «лёжа» на вытянутом с севера на юг блоке
+  }
+  function aptFacing(p, b, a) {
+    const [cx, cy] = centroid(a.poly);
+    const r = (cx / b.plan.w - 0.5), u = -(cy / b.plan.h - 0.5);
+    return (planUp(p, b) + azim(r, u)) % 360;
+  }
+  function flyAt(p, b, localAz, extra = {}) {
+    // камера стоит со стороны localAz и смотрит на блок
+    const bearing = toMapBearing(p, localAz + 180 + 18);
+    const top = floorBase(p, b.floors + 1);
+    map.flyTo({ center: toLngLat(p, centroid(b.fp)), zoom: 18.6 - top / 70 - (isMobile() ? 0.6 : 0), pitch: 60, bearing, duration: 1600, padding: camPad(), essential: true, ...extra });
+  }
+  const flyBlock = (p, b) => flyAt(p, b, blockFacing(p, b));
+  const flyApt = (p, b, a) => flyAt(p, b, aptFacing(p, b, a), { duration: 1300 });
   function flyCity() { map.flyTo({ center: CFG.city.center, zoom: CFG.city.zoom, pitch: 45, bearing: -12, duration: 1800, padding: camPad() }); }
 
   /* ---------- Роутинг ---------- */
@@ -200,7 +231,7 @@
     const b = p && p.blocks.find((x) => x.id === parts[1]);
     const f = b && parseInt(parts[2], 10);
     const a = b && f && b.plan.apts.find((x) => x.n === parseInt(parts[3], 10));
-    const prevProject = state.project, prevBlock = state.block;
+    const prevProject = state.project, prevBlock = state.block, prevApt = state.apt;
     state.project = p || null; state.block = b || null;
     state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
@@ -211,8 +242,8 @@
     if (!p) { renderList(); if (prevProject) flyCity(); }
     else if (!b) { renderProject(p); flyProject(p); }
     else if (!state.floor) { renderBlock(p, b); flyBlock(p, b); }
-    else if (!state.apt) { renderFloor(p, b, state.floor); if (prevBlock !== b) flyBlock(p, b); }
-    else { renderApt(p, b, state.floor, state.apt); if (prevBlock !== b) flyBlock(p, b); }
+    else if (!state.apt) { renderFloor(p, b, state.floor); if (prevBlock !== b || prevApt) flyBlock(p, b); }
+    else { renderApt(p, b, state.floor, state.apt); if (prevApt !== state.apt) flyApt(p, b, state.apt); }
     panelBody.scrollTop = 0;
     if (isMobile() && p) setSheet('');
     // сообщаем чату, что смотрит гость
@@ -535,7 +566,7 @@
       const lead = { project: p.name, block: b.id, floor: f, apt: num, area: a.area, down, months, name: fd.get('name'), phone: fd.get('phone'), at: new Date().toISOString() };
       try { const arr = JSON.parse(localStorage.getItem('yurta_leads') || '[]'); arr.push(lead); localStorage.setItem('yurta_leads', JSON.stringify(arr)); } catch (err) {}
       if (CFG.whatsapp) {
-        const text = `Здравствуйте! Заявка с сайта Юрта:\nЖК ${p.name}, блок ${b.id}, ${f} этаж, кв. ${num} (${area(a.area)})\nВзнос ${som(down)}, рассрочка ${months} мес.\nИмя: ${lead.name}\nТелефон: ${lead.phone}`;
+        const text = `Здравствуйте! Заявка с сайта «Объекты»:\nЖК ${p.name}, блок ${b.id}, ${f} этаж, кв. ${num} (${area(a.area)})\nВзнос ${som(down)}, рассрочка ${months} мес.\nИмя: ${lead.name}\nТелефон: ${lead.phone}`;
         window.open(`https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
       }
       $('#modalCard').innerHTML = `<button class="modal-close" data-close>✕</button><h2>Спасибо, ${esc(lead.name)}!</h2><p class="muted" style="margin-top:8px">Менеджер свяжется с вами в ближайшее время и подтвердит бронь квартиры № ${num}.</p><button class="cta" data-close>Хорошо</button>`;
