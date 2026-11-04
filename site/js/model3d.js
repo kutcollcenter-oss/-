@@ -143,13 +143,14 @@
     });
   }
   // Стены по контуру: UV привязаны к осям окон и этажам
-  function wallGeometry(pts, z0, z1, uSize, vSize, vOrigin = z0) {
+  function wallGeometry(pts, z0, z1, uSize, vSize, vOrigin = z0, skip = null) {
     pts = ccw(pts);
     const pos = [], nor = [], uv = [], idx = [];
     let u0 = 0;
     pts.forEach((a, i) => {
       const b = pts[(i + 1) % pts.length];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 0.01) return;
+      if (skip && skip.has(i)) { u0 += len / uSize; return; }
       const nx = (b[1] - a[1]) / len, ny = -(b[0] - a[0]) / len;
       const base = pos.length / 3;
       const ua = u0, ub = u0 + len / uSize;
@@ -345,6 +346,7 @@
     const white = lambert({ color: 0xf4f3ef });
     const roofMat = lambert({ color: 0x8f9397 });
     const darkMat = lambert({ color: 0x2a2f36 });
+    const blankMat = lambert({ color: p.blankColor || 0xeeede9 });
     const pick = [];
 
     // Объёмы стилобата / коммерции / детсада
@@ -384,7 +386,24 @@
         const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, p.residentialBase, BAY * 8, (p.residentialBase - p.blockBase) * 2, p.blockBase), shopMat);
         w.userData = { pid: p.id, block: b.id }; bg.add(w); pick.push(w);
       }
-      const walls = new THREE.Mesh(wallGeometry(fp, p.residentialBase, top, BAY * ATLAS_BAYS, p.floorHeight * ATLAS_FLOORS, p.residentialBase), facadeMat);
+      // Глухие торцы (по рендерам): короткие стороны вытянутых блоков — без окон
+      const ends = new Set();
+      if (p.blankEnds) {
+        const xs = fp.map((q) => q[0]), ys = fp.map((q) => q[1]);
+        const w = Math.max(...xs) - Math.min(...xs), h = Math.max(...ys) - Math.min(...ys);
+        if (Math.max(w, h) / Math.min(w, h) > 1.2) {
+          const k = h > w ? 1 : 0, lo = Math.min(...fp.map((q) => q[k])), hi = Math.max(...fp.map((q) => q[k]));
+          fp.forEach((a, i) => { const c = fp[(i + 1) % fp.length];
+            if ((Math.abs(a[k] - lo) < 1.5 && Math.abs(c[k] - lo) < 1.5) || (Math.abs(a[k] - hi) < 1.5 && Math.abs(c[k] - hi) < 1.5)) ends.add(i); });
+        }
+      }
+      const walls = new THREE.Mesh(wallGeometry(fp, p.residentialBase, top, BAY * ATLAS_BAYS, p.floorHeight * ATLAS_FLOORS, p.residentialBase, ends), facadeMat);
+      const blockPick = [walls];
+      for (const i of ends) {
+        const a = fp[i], c = fp[(i + 1) % fp.length];
+        const bw = new THREE.Mesh(quad([a[0], a[1], p.residentialBase], [c[0], c[1], p.residentialBase], [c[0], c[1], top], [a[0], a[1], top]), blankMat);
+        bw.userData = { pid: p.id, block: b.id }; bg.add(bw); pick.push(bw); blockPick.push(bw);
+      }
       walls.userData = { pid: p.id, block: b.id };
       bg.add(walls); pick.push(walls);
       const roof = flat(fp, top, roofMat); roof.userData = { pid: p.id, block: b.id }; bg.add(roof); pick.push(roof);
@@ -419,7 +438,7 @@
         bg.add(slab(offsetPoly(fp, 0.15), top + 1.1, top + 1.3, darkMat));
       }
       instanced(bg, fins, finMat); instanced(bg, bands, finMat);
-      blockInfo[b.id] = { fp, group: bg };
+      blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick };
     }
 
     // Деревья
@@ -468,9 +487,11 @@
       aptMesh.visible = true; selMat.opacity = 0.35;
     }
     const ghostMat = new THREE.MeshLambertMaterial({ color: 0xe9ecf0, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
-    function focusBlock(id) {
+    const focus = { id: null, targets: [] };
+    function setFocus(id, targets) { focus.id = id; focus.targets = targets || []; if (!id) applyGhost(new Set()); }
+    function applyGhost(ids) {
       for (const [bid, info] of Object.entries(blockInfo)) {
-        const ghost = !!id && bid !== id;
+        const ghost = ids.has(bid);
         info.group.traverse((m) => {
           if (!m.isMesh) return;
           if (!m.userData.mat) m.userData.mat = m.material;
@@ -479,7 +500,7 @@
         });
       }
     }
-    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focusBlock };
+    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -506,8 +527,8 @@
           const l = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z).scale(new THREE.Vector3(s, -s, s));
           camera.projectionMatrix = mm.multiply(l);
           L.inv = camera.projectionMatrix.clone().invert();
-          if (L.built.aptMesh.visible) { // плавное «дыхание», один раз в 2,6 секунды
-            const k = 0.5 - 0.5 * Math.cos(performance.now() / 2600 * Math.PI * 2); L.built.aptMat.opacity = 0.3 + 0.5 * k * k * (3 - 2 * k);
+          if (L.built.aptMesh.visible) { // плавное «дыхание», один раз в 1,7 секунды
+            const k = 0.5 - 0.5 * Math.cos(performance.now() / 1700 * Math.PI * 2); L.built.aptMat.opacity = 0.3 + 0.5 * k * k * (3 - 2 * k);
             m_.triggerRepaint();
           }
           renderer.resetState();
@@ -551,9 +572,31 @@
       for (const id in layers) { const L = layers[id]; if (L.built) L.built.placeApt(p && p.id === id ? localPoly : null, f); }
       map.triggerRepaint();
     }
-    function focusBlock(p, b) {
-      for (const id in layers) { const L = layers[id]; if (L.built) L.built.focusBlock(p && p.id === id && b ? b.id : null); }
-      map.triggerRepaint();
+    // Какие блоки стоят между камерой и выбранным блоком/квартирой — только они становятся прозрачными
+    function updateOcclusion(L) {
+      const B = L.built; if (!B) return;
+      if (!B.focus.id || !L.inv) { B.applyGhost(new Set()); return; }
+      B.root.updateMatrixWorld(true);
+      const occ = new Set(), others = Object.entries(B.blockInfo).filter(([bid]) => bid !== B.focus.id);
+      for (const t of B.focus.targets) {
+        const T = B.root.localToWorld(new THREE.Vector3(t[0], t[1], t[2]));
+        const ndc = T.clone().applyMatrix4(L.camera.projectionMatrix);
+        if (Math.abs(ndc.x) > 1.3 || Math.abs(ndc.y) > 1.3) continue;
+        const near = new THREE.Vector3(ndc.x, ndc.y, -1).applyMatrix4(L.inv);
+        const dir = T.clone().sub(near), dist = dir.length();
+        raycaster.set(near, dir.normalize()); raycaster.far = dist - 0.3;
+        for (const [bid, info] of others) if (!occ.has(bid) && raycaster.intersectObjects(info.pickMeshes, false).length) occ.add(bid);
+      }
+      raycaster.far = Infinity;
+      B.applyGhost(occ);
+    }
+    let occT = 0;
+    const occAll = () => { for (const id in layers) updateOcclusion(layers[id]); map.triggerRepaint(); };
+    map.on('move', () => { const n = performance.now(); if (n - occT > 200) { occT = n; occAll(); } });
+    map.on('moveend', occAll);
+    function focusBlock(p, b, targets) {
+      for (const id in layers) { const L = layers[id]; if (L.built) L.built.setFocus(p && p.id === id && b ? b.id : null, targets); }
+      requestAnimationFrame(occAll);
     }
     return { pick, highlight, highlightApt, focusBlock };
   }

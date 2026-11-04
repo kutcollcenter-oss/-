@@ -223,6 +223,17 @@
       return [C[0] + 2 * hR * u * Rv[0] + 2 * hU * t * Uv[0], C[1] + 2 * hR * u * Rv[1] + 2 * hU * t * Uv[1]];
     });
   }
+  // Точки, которые должны быть видны с камеры: квартира, этаж или весь блок
+  function focusTargets(p, b, f, a) {
+    const top = floorBase(p, b.floors + 1);
+    if (a) {
+      const lp = aptLocalPoly(p, b, a), z = floorBase(p, f) + p.floorHeight / 2;
+      return [[...centroid(lp), z], ...lp.map((q) => [q[0], q[1], z])];
+    }
+    const zs = f ? [floorBase(p, f) + p.floorHeight / 2] : [top * 0.25, top * 0.6, top * 0.95];
+    const pts = [centroid(b.fp), ...b.fp];
+    return zs.flatMap((z) => pts.map((q) => [q[0], q[1], z]));
+  }
   function aptFacing(p, b, a) {
     const c = centroid(aptLocalPoly(p, b, a)), bc = centroid(b.fp);
     return azim(c[0] - bc[0], c[1] - bc[1]);
@@ -236,6 +247,16 @@
   }
   const flyBlock = (p, b) => flyAt(p, b, blockFacing(p, b));
   const flyApt = (p, b, a) => flyAt(p, b, aptFacing(p, b, a), { duration: 1300 });
+  function flyDistrict(id) {
+    if (id === 'all') return flyCity();
+    const list = PROJECTS.filter((p) => p.district === id), d = CFG.districts.find((x) => x.id === id) || {};
+    if (!list.length) return map.flyTo({ center: d.center || CFG.city.center, zoom: 13, pitch: 45, bearing: -12, duration: 1600, padding: camPad() });
+    const b = new maplibregl.LngLatBounds();
+    list.forEach((p) => b.extend(p.marker));
+    if (d.center) b.extend(d.center);
+    const pad = camPad();
+    map.fitBounds(b, { padding: { top: pad.top + 90, bottom: pad.bottom + 90, left: pad.left + 90, right: pad.right + 90 }, maxZoom: 15, pitch: 50, bearing: -12, duration: 1800 });
+  }
   function flyCity() { map.flyTo({ center: CFG.city.center, zoom: CFG.city.zoom, pitch: 45, bearing: -12, duration: 1800, padding: camPad() }); }
 
   /* ---------- Роутинг ---------- */
@@ -254,7 +275,7 @@
     state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
     selectFloor3D(state.project, state.block, state.floor);
-    if (engine) engine.focusBlock(state.block ? p : null, b); // остальные блоки — полупрозрачные, чтобы не закрывали вид
+    if (engine) engine.focusBlock(state.block ? p : null, b, state.block ? focusTargets(p, b, state.floor, state.apt) : []); // прозрачные — только те блоки, что закрывают вид
     if (engine) engine.highlightApt(state.apt ? p : null, b, state.floor, state.apt ? aptLocalPoly(p, b, state.apt) : null);
     updateMarkerVisibility();
     document.documentElement.style.setProperty('--brand', p ? p.brandColor : '#14161a');
@@ -367,7 +388,7 @@
       ${budgetHtml()}
       <div class="chips">${CFG.districts.map((d) => { const n = d.id === 'all' ? PROJECTS.length : PROJECTS.filter((p) => p.district === d.id).length; return `<button class="chip ${d.id === state.district ? 'active' : ''} ${n ? '' : 'zero'}" data-d="${d.id}">${d.name}<span class="cnt">${n}</span></button>`; }).join('')}</div>
       ${!list.length ? `<div class="empty">В этом районе пока нет объектов.<br>Скоро добавим.</div>` : budgetDone() ? resultsHtml(list) : list.map(cardHtml).join('')}`;
-    panelBody.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { state.district = c.dataset.d; renderList(); addMarkers(); }));
+    panelBody.querySelectorAll('.chip').forEach((c) => c.addEventListener('click', () => { state.district = c.dataset.d; renderList(); addMarkers(); flyDistrict(state.district); }));
     const set = (k, v) => { state.budget[k] = v; if (k === 'down') state.budget.monthly = null; saveBudget(); renderList(); addMarkers(); };
     panelBody.querySelectorAll('[data-down]').forEach((b) => b.onclick = () => set('down', +b.dataset.down));
     panelBody.querySelectorAll('[data-monthly]').forEach((b) => b.onclick = () => set('monthly', +b.dataset.monthly));

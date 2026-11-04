@@ -10,10 +10,10 @@ window.YURTA_CONFIG = {
   city: { name: 'Бишкек', center: [74.585, 42.862], zoom: 12.2 },
   districts: [
     { id: 'all', name: 'Все районы' },
-    { id: 'leninsky', name: 'Ленинский' },
-    { id: 'oktyabrsky', name: 'Октябрьский' },
-    { id: 'pervomaysky', name: 'Первомайский' },
-    { id: 'sverdlovsky', name: 'Свердловский' },
+    { id: 'leninsky', name: 'Ленинский', center: [74.55, 42.84] },
+    { id: 'oktyabrsky', name: 'Октябрьский', center: [74.64, 42.84] },
+    { id: 'pervomaysky', name: 'Первомайский', center: [74.585, 42.885] },
+    { id: 'sverdlovsky', name: 'Свердловский', center: [74.64, 42.885] },
   ],
 };
 
@@ -119,7 +119,7 @@ const ORDO_PLAN_2 = { // блоки 4–11
   ],
 };
 
-const PLUS_PLAN_1 = { // Алтай Плюс, Тип-1 (блоки Б-1…Б-4)
+const PLUS_PLAN_1 = { // Алтай Плюс, Тип-1 (блоки Б-1…Б-8)
   img: 'img/plus/plan_1.jpg', w: 1600, h: 740,
   apts: [
     { n: 1, rooms: 1, euro: true, area: 74.08, poly: [[240,25],[355,25],[355,320],[455,320],[455,490],[345,490],[345,690],[240,690]] },
@@ -133,7 +133,7 @@ const PLUS_PLAN_1 = { // Алтай Плюс, Тип-1 (блоки Б-1…Б-4)
     { n: 9, rooms: 1, area: 49.08, poly: [[345,490],[460,490],[460,395],[555,395],[555,695],[345,695]] },
   ],
 };
-const PLUS_PLAN_2 = { // Алтай Плюс, Тип-2 (блоки Б-5…Б-9)
+const PLUS_PLAN_2 = { // Алтай Плюс, Тип-2 (квадратный блок Б-9; его Тип-3 в презентации нет)
   img: 'img/plus/plan_2.jpg', w: 1600, h: 740,
   apts: [
     { n: 1, rooms: 2, area: 73.38, poly: [[445,20],[690,20],[690,360],[395,360],[395,250],[445,250]] },
@@ -237,6 +237,8 @@ window.YURTA_PROJECTS = [
     rotation: 0,
     view: { bearing: 18, pitch: 58, zoom: 16.8 },
     style: 'ordo',
+    blankEnds: true, blankColor: 0xeeede9, // торцы блоков — глухие белые стены (по рендерам)
+    // подъезд (лифтовое ядро — верх плана) смотрит во двор: у блоков 4–6 на восток, у 7–11 на запад
     brandColor: '#1d1d1f',
     renders: ['img/ordo/r1.jpg', 'img/ordo/r3.jpg', 'img/ordo/r4.jpg', 'img/ordo/r5.jpg', 'img/ordo/r2.jpg', 'img/ordo/r6.jpg'],
     completion: 'I квартал 2029',
@@ -295,9 +297,9 @@ window.YURTA_PROJECTS = [
       { id: '1', floors: 16, fp: notched(14.85, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
       { id: '2', floors: 16, fp: notched(80.55, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
       { id: '3', floors: 16, fp: notched(146.25, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
-      { id: '4', floors: 16, fp: notched(0, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '5', floors: 16, fp: notched(0, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '6', floors: 16, fp: notched(0, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
+      { id: '4', floors: 16, fp: notched(0, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
+      { id: '5', floors: 16, fp: notched(0, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
+      { id: '6', floors: 16, fp: notched(0, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
       { id: '7', floors: 16, fp: notched(65.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
       { id: '8', floors: 16, fp: notched(65.6, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
       { id: '9', floors: 16, fp: notched(131.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
@@ -317,6 +319,8 @@ window.YURTA_PROJECTS = [
     rotation: 0,
     view: { bearing: -25, pitch: 58, zoom: 16.5 },
     style: 'plus',
+    blankEnds: true, blankColor: 0x4a4d52, // торцы — глухие тёмные стены (по рендерам)
+    // все блоки Б-1…Б-8 — Тип-1; подъезд (лифтовое ядро — верх плана): у Б-1…Б-4 на запад, у Б-5…Б-8 на восток
     brandColor: '#141414',
     renders: ['img/plus/r1.jpg', 'img/plus/r2.jpg', 'img/plus/r3.jpg', 'img/plus/r4.jpg', 'img/plus/r5.jpg', 'img/plus/r6.jpg', 'img/plus/r7.jpg'],
     completion: 'I квартал 2029',
@@ -363,10 +367,10 @@ window.YURTA_PROJECTS = [
       { id: '2', floors: 16, fp: notched(44.6, 12.2, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_1 },
       { id: '3', floors: 16, fp: notched(44.6, -28.0, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_1 },
       { id: '4', floors: 16, fp: notched(44.6, -67.7, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_1 },
-      { id: '5', floors: 16, fp: notched(-21.6, -95.0, 24.8, 38.5, 'v', 7, 0.8), plan: PLUS_PLAN_2 },
-      { id: '6', floors: 16, fp: notched(-17.9, -55.3, 24.8, 38.9, 'v', 7, 0.8), plan: PLUS_PLAN_2 },
-      { id: '7', floors: 16, fp: notched(-14.9, -15.1, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_2 },
-      { id: '8', floors: 16, fp: notched(-12.4, 24.8, 24.8, 36.5, 'v', 7, 0.8), plan: PLUS_PLAN_2 },
+      { id: '5', floors: 16, fp: notched(-21.6, -95.0, 24.8, 38.5, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
+      { id: '6', floors: 16, fp: notched(-17.9, -55.3, 24.8, 38.9, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
+      { id: '7', floors: 16, fp: notched(-14.9, -15.1, 24.8, 38.4, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
+      { id: '8', floors: 16, fp: notched(-12.4, 24.8, 24.8, 36.5, 'v', 7, 0.8), plan: PLUS_PLAN_1, planUp: 90 },
       { id: '9', floors: 16, fp: rect(-10.4, 68.7, 12.4, 93.5), plan: PLUS_PLAN_2 },
     ],
   },
