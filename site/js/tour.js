@@ -103,7 +103,7 @@
     }
     let walls = 0; for (let i = 0; i < W * H; i++) walls += wall[i];
     const toM = ([x, y]) => [(x * sx - X0) * mpp, (y * sy - Y0) * mpp];
-    return { thr, k, mpp, toM, wallM2: walls * cell * cell, cv: fl, W, H, cell, wall, lines, inner, edge, opening, polyM, wm: w * mpp, hm: h * mpp, ok: walls * cell * cell > 2.5 };
+    return { thr, k, mpp, toM, wallM2: walls * cell * cell, cv: fl, planCv: cv, W, H, cell, wall, lines, inner, edge, opening, polyM, wm: w * mpp, hm: h * mpp, ok: walls * cell * cell > 2.5 };
   }
 
   /* ---------- Что за проёмом: окно, вход из коридора или стык с соседней квартирой ---------- */
@@ -508,6 +508,22 @@
       }
       return true;
     };
+    // путь в обход стен: поиск в ширину по свободным клеткам, точки маршрута через каждые ~40 см
+    let walkable = null;
+    const goTo = (x, z) => {
+      const W = A.W, N = A.W * A.H, c = A.cell, ci = (px, pz) => Math.floor(pz / c) * W + Math.floor(px / c);
+      if (!walkable) { walkable = new Uint8Array(N); for (let i = 0; i < N; i++) walkable[i] = free((i % W + 0.5) * c, ((i / W | 0) + 0.5) * c) ? 1 : 0; }
+      const s = ci(walk.x, walk.z), g = ci(x, z);
+      if (g < 0 || g >= N || !walkable[g]) return false;
+      const prev = new Int32Array(N).fill(-1); prev[s] = s; const q = [s];
+      for (let h = 0; h < q.length && prev[g] < 0; h++) { const j = q[h], cx = j % W; for (const n of [cx > 0 ? j - 1 : -1, cx < W - 1 ? j + 1 : -1, j - W, j + W]) if (n >= 0 && n < N && walkable[n] && prev[n] < 0) { prev[n] = j; q.push(n); } }
+      if (prev[g] < 0) return false; // туда не пройти
+      T.goal = [x, z];
+      const cells = []; for (let j = g; j !== s; j = prev[j]) cells.push(j); cells.reverse();
+      const pts = cells.filter((_, k) => k % 8 === 7 || k === cells.length - 1).map((j) => [(j % W + 0.5) * c, ((j / W | 0) + 0.5) * c]);
+      T.target = pts.shift() || null; T.path = pts; return true;
+    };
+    const stopWalk = () => { T.target = null; T.path = null; T.goal = null; };
     // старт: свободная точка ближе к центру, взгляд туда, где больше места
     const ctr = A.polyM.reduce((s, q) => [s[0] + q[0] / A.polyM.length, s[1] + q[1] / A.polyM.length], [0, 0]);
     let best = null;
@@ -518,13 +534,48 @@
     const orbit = { yaw: 0.6, pitch: 1.0, r: Math.max(A.wm, A.hm) * 1.05 + 3, cx: ctr[0], cz: ctr[1] };
 
     const help = $('.tour-help', root), joy = $('.tour-joy', root), touch = matchMedia('(pointer: coarse)').matches;
+
+    // мини-карта: планировка квартиры, точка — где вы стоите, конус — куда смотрите; клик — пойти туда
+    const mini = document.createElement('div'); mini.className = 'tour-mini'; mini.hidden = true;
+    const mc = document.createElement('canvas'); mini.append(mc); root.append(mini);
+    const MS = touch ? 170 : 240, msc = MS / Math.max(A.wm, A.hm), dpr = Math.min(2, devicePixelRatio || 1);
+    const mw = Math.round(A.wm * msc), mh = Math.round(A.hm * msc);
+    mc.width = mw * dpr; mc.height = mh * dpr; mc.style.width = mw + 'px'; mc.style.height = mh + 'px';
+    const mg = mc.getContext('2d'); mg.scale(dpr, dpr);
+    const base = document.createElement('canvas'); base.width = mw * dpr; base.height = mh * dpr;
+    { // подложка рисуется один раз: план внутри контура квартиры, снаружи — затемнение
+      const g = base.getContext('2d'); g.scale(dpr, dpr);
+      g.fillStyle = 'rgba(20,22,26,.35)'; g.fillRect(0, 0, mw, mh);
+      g.save(); g.beginPath(); A.polyM.forEach(([x, z], i) => g[i ? 'lineTo' : 'moveTo'](x * msc, z * msc)); g.closePath(); g.clip();
+      g.drawImage(A.planCv, 0, 0, mw, mh); g.restore();
+      g.strokeStyle = '#d4572a'; g.lineWidth = 1.5; g.beginPath(); A.polyM.forEach(([x, z], i) => g[i ? 'lineTo' : 'moveTo'](x * msc, z * msc)); g.closePath(); g.stroke();
+    }
+    let lastMini = '';
+    const drawMini = () => {
+      const key = walk.x.toFixed(2) + walk.z.toFixed(2) + walk.yaw.toFixed(2) + (T.goal ? T.goal.join() : '');
+      if (key === lastMini || mini.hidden) return; lastMini = key;
+      mg.clearRect(0, 0, mw, mh); mg.drawImage(base, 0, 0, mw, mh);
+      const px = walk.x * msc, pz = walk.z * msc, fov = 0.6, L = 42;
+      if (T.goal) { mg.fillStyle = 'rgba(212,87,42,.35)'; mg.beginPath(); mg.arc(T.goal[0] * msc, T.goal[1] * msc, 7, 0, 7); mg.fill(); }
+      const cone = mg.createRadialGradient(px, pz, 2, px, pz, L); cone.addColorStop(0, 'rgba(212,87,42,.85)'); cone.addColorStop(1, 'rgba(212,87,42,.05)');
+      mg.fillStyle = cone; mg.beginPath(); mg.moveTo(px, pz);
+      mg.arc(px, pz, L, walk.yaw - Math.PI / 2 - fov, walk.yaw - Math.PI / 2 + fov); mg.closePath(); mg.fill();
+      mg.fillStyle = '#fff'; mg.beginPath(); mg.arc(px, pz, 6.5, 0, 7); mg.fill();
+      mg.fillStyle = '#d4572a'; mg.beginPath(); mg.arc(px, pz, 4.5, 0, 7); mg.fill();
+    };
+    mini.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      const r = mc.getBoundingClientRect(), x = (e.clientX - r.left) / msc, z = (e.clientY - r.top) / msc;
+      goTo(x, z);
+    });
     const setMode = (m) => {
-      T.mode = m; T.target = null;
+      T.mode = m; stopWalk();
       root.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
       B.ceil.visible = m === 'walk'; B.ground.visible = m === 'walk'; B.pano.visible = m === 'walk'; B.scene.background = m === 'walk' && B.sky ? B.sky : new THREE.Color(0xcfe3f5);
       joy.hidden = !(m === 'walk' && touch);
+      mini.hidden = m !== 'walk';
       help.textContent = m === 'walk'
-        ? (touch ? 'Джойстик слева — идти, проведите пальцем — осмотреться, коснитесь пола — перейти туда' : 'W A S D или стрелки — идти · тяните мышью — осмотреться · клик по полу — перейти туда')
+        ? (touch ? 'Джойстик — идти, ведите пальцем — осмотреться, нажмите на пол или мини-карту — пойти туда' : 'W A S D или стрелки — идти · тяните мышью — осмотреться · клик по полу или мини-карте — пойти туда')
         : 'Тяните — повернуть · колесо или два пальца — приблизить · нажмите на комнату — войти туда';
     };
     root.querySelectorAll('[data-m]').forEach((b) => b.onclick = () => setMode(b.dataset.m));
@@ -562,7 +613,7 @@
         ray.setFromCamera(ndc, cam); const hit = ray.intersectObject(B.floor)[0];
         if (hit && free(hit.point.x, hit.point.z)) {
           if (T.mode === 'top') { walk.x = hit.point.x; walk.z = hit.point.z; walk.yaw = orbit.yaw + Math.PI; setMode('walk'); }
-          else T.target = [hit.point.x, hit.point.z];
+          else goTo(hit.point.x, hit.point.z);
         }
       }
       if (pts.size === 0) drag = null;
@@ -574,7 +625,7 @@
     // джойстик на телефоне
     const knob = $('i', joy); let jid = null;
     const jmove = (e) => { const r = joy.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2; let dx = e.clientX - cx, dy = e.clientY - cy; const L = Math.hypot(dx, dy), M = r.width / 2 - 14; if (L > M) { dx *= M / L; dy *= M / L; } knob.style.transform = `translate(${dx}px,${dy}px)`; T.joy = [dx / M, dy / M]; };
-    joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture(jid); jmove(e); T.target = null; });
+    joy.addEventListener('pointerdown', (e) => { jid = e.pointerId; joy.setPointerCapture(jid); jmove(e); stopWalk(); });
     joy.addEventListener('pointermove', (e) => { if (e.pointerId === jid) jmove(e); });
     const jend = () => { jid = null; T.joy = [0, 0]; knob.style.transform = ''; };
     joy.addEventListener('pointerup', jend); joy.addEventListener('pointercancel', jend);
@@ -590,15 +641,18 @@
         if (k.ArrowLeft) walk.yaw -= 1.8 * dt; if (k.ArrowRight) walk.yaw += 1.8 * dt;
         f -= T.joy[1]; s += T.joy[0];
         let mx = (Math.sin(walk.yaw) * f + Math.cos(walk.yaw) * s), mz = (-Math.cos(walk.yaw) * f + Math.sin(walk.yaw) * s);
+        if ((f || s) && T.target) stopWalk(); // своё управление отменяет маршрут
         if (T.target && !f && !s) {
           const dx = T.target[0] - walk.x, dz = T.target[1] - walk.z, d = Math.hypot(dx, dz);
-          if (d < 0.08) T.target = null; else { mx = dx / d; mz = dz / d; const ty = Math.atan2(dx, -dz); let dd = ty - walk.yaw; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); walk.yaw += dd * Math.min(1, dt * 4); }
+          if (d < (T.path && T.path.length ? 0.2 : 0.08)) { T.target = T.path && T.path.length ? T.path.shift() : null; if (!T.target) stopWalk(); } else { mx = dx / d; mz = dz / d; const ty = Math.atan2(dx, -dz); let dd = ty - walk.yaw; dd = Math.atan2(Math.sin(dd), Math.cos(dd)); walk.yaw += dd * Math.min(1, dt * 4); }
         }
         const L = Math.hypot(mx, mz);
         if (L > 0) {
           const st = 1.5 * dt / Math.max(1, L);
-          if (free(walk.x + mx * st, walk.z)) walk.x += mx * st; else if (T.target) T.target = null;
-          if (free(walk.x, walk.z + mz * st)) walk.z += mz * st; else if (T.target) T.target = null;
+          const okx = free(walk.x + mx * st, walk.z); if (okx) walk.x += mx * st;
+          const okz = free(walk.x, walk.z + mz * st); if (okz) walk.z += mz * st;
+          // на углу упёрлись обеими осями — точка маршрута свободна и рядом (≤ 40 см), встаём на неё
+          if (!okx && !okz && T.target) { walk.x = T.target[0]; walk.z = T.target[1]; }
         }
         cam.position.set(walk.x, Math.min(EYE, H - 0.3), walk.z);
         cam.lookAt(walk.x + Math.sin(walk.yaw) * Math.cos(walk.pitch), cam.position.y + Math.sin(walk.pitch), walk.z - Math.cos(walk.yaw) * Math.cos(walk.pitch));
@@ -607,11 +661,12 @@
         cam.lookAt(orbit.cx, 0, orbit.cz);
       }
       renderer.render(scene, cam);
+      if (T.mode === 'walk') drawMini();
       T.raf = requestAnimationFrame(loop);
     };
     T.raf = requestAnimationFrame(loop);
     T.debug = { A, walk, orbit, setMode };
   }
 
-  window.YurtaTour = { open, close, _analyse: analyse, _dbg: () => T && T.debug };
+  window.YurtaTour = { open, close, _analyse: analyse, _dbg: () => T && T.debug && Object.assign(T.debug, { target: T.target, path: T.path, goal: T.goal }) };
 })();
