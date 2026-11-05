@@ -48,14 +48,15 @@
   const guest = { open: false, messages: [], assignedName: '', staffOnline: 0, es: null, viewTimer: 0, unread: 0, askedContact: false };
 
   const gBtn = h('button', 'chat-fab'); gBtn.setAttribute('aria-label', 'Чат с менеджером');
-  gBtn.innerHTML = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/></svg><span>Вопрос менеджеру</span><b class="badge" hidden></b>';
+  gBtn.innerHTML = '<i class="fab-ico"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01"/></svg><u class="fab-on" hidden></u></i><span>Вопрос менеджеру</span><b class="badge" hidden></b>';
   const gPanel = h('section', 'chat-panel'); gPanel.hidden = true;
   gPanel.innerHTML = `
-    <header><div class="who"><span class="dot"></span><div><b>Менеджер</b><small></small></div></div><button class="x" aria-label="Свернуть">✕</button></header>
+    <header><div class="who"><span class="ava"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="2.5" y="13" width="4" height="6" rx="1.5"/><rect x="17.5" y="13" width="4" height="6" rx="1.5"/><path d="M19.5 19a3 3 0 0 1-3 3H13"/></svg><span class="dot"></span></span><div><b>Менеджер</b><small></small></div></div><button class="x" aria-label="Свернуть"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg></button></header>
     <div class="ctx" hidden></div>
     <div class="msgs"></div>
+    <div class="quick-q"></div>
     <form class="contact" hidden><div class="small">Как с вами связаться, если вы уйдёте с сайта?</div><input name="name" placeholder="Имя" autocomplete="name" maxlength="60"><input name="phone" placeholder="Телефон / WhatsApp" type="tel" autocomplete="tel" maxlength="30"><div class="row"><button type="submit">Сохранить</button><button type="button" class="skip">Позже</button></div></form>
-    <form class="send"><textarea rows="1" placeholder="Напишите вопрос…" maxlength="2000"></textarea><button type="submit" aria-label="Отправить">➤</button></form>`;
+    <form class="send"><textarea rows="1" placeholder="Напишите вопрос…" maxlength="2000"></textarea><button type="submit" aria-label="Отправить"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg></button></form>`;
   document.body.append(gBtn, gPanel);
   const gMsgs = $('.msgs', gPanel), gInput = $('.send textarea', gPanel);
 
@@ -63,8 +64,9 @@
     $('.who b', gPanel).textContent = guest.assignedName || 'Менеджер';
     $('.who small', gPanel).textContent = guest.staffOnline ? 'в сети — ответим за пару минут' : 'оставьте вопрос — ответим как можно скорее';
     $('.dot', gPanel).classList.toggle('on', guest.staffOnline > 0);
+    $('.fab-on', gBtn).hidden = !(guest.staffOnline > 0);
     const c = $('.ctx', gPanel);
-    if (route.apt) { c.hidden = false; c.textContent = `Вы смотрите: ${viewText(route)}`; } else c.hidden = true;
+    if (route.apt) { c.hidden = false; c.textContent = viewText(route); } else c.hidden = true;
   }
   function renderGuestMsgs() {
     gMsgs.innerHTML = '';
@@ -74,12 +76,19 @@
     }
     for (const m of guest.messages) gMsgs.append(msgEl(m, m.from === 'guest'));
     gMsgs.scrollTop = gMsgs.scrollHeight;
+    // готовые вопросы — пока гость ещё ничего не написал
+    const q = $('.quick-q', gPanel); q.innerHTML = '';
+    if (!guest.messages.some((m) => m.from === 'guest')) {
+      const list = route.apt ? ['Эта квартира свободна?', 'Какой будет платёж в месяц?', 'Можно посмотреть вживую?'] : ['Какие условия рассрочки?', 'Есть 1-комнатные до 50 м²?', 'Перезвоните мне'];
+      for (const t of list) { const b = h('button', 'qq', t); b.type = 'button'; b.onclick = () => { gInput.value = t; $('.send', gPanel).requestSubmit(); }; q.append(b); }
+    }
   }
   function msgEl(m, mine) {
     const w = h('div', 'msg ' + (mine ? 'mine' : 'staff'));
     if (!mine && m.from === 'staff' && m.staffName) w.append(h('div', 'name', m.staffName));
     if (m.from === 'guest' && !mine) w.append(h('div', 'name', 'Гость'));
-    w.append(h('div', 'bubble', m.text), h('div', 'time', time(m.at)));
+    const bub = h('div', 'bubble', m.text); bub.append(h('span', 'time', time(m.at) + (mine ? ' ✓' : '')));
+    w.append(bub);
     return w;
   }
   function setGuestOpen(v) {
@@ -89,11 +98,13 @@
   function updateBadge() { const b = $('.badge', gBtn); b.hidden = !guest.unread; b.textContent = guest.unread; }
   gBtn.onclick = () => setGuestOpen(!guest.open);
   $('.x', gPanel).onclick = () => setGuestOpen(false);
+  const grow = (t) => { t.style.height = 'auto'; t.style.height = Math.min(120, t.scrollHeight) + 'px'; };
+  gInput.addEventListener('input', () => grow(gInput));
   gInput.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('.send', gPanel).requestSubmit(); } });
   $('.send', gPanel).onsubmit = async (e) => {
     e.preventDefault();
     const text = gInput.value.trim(); if (!text) return;
-    gInput.value = '';
+    gInput.value = ''; grow(gInput);
     try {
       const r = await api('/api/guest/message', { gid, text, view: { hash: route.hash } });
       if (!guest.messages.some((m) => m.id === r.message.id)) guest.messages.push(r.message);

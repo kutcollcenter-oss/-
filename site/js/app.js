@@ -334,6 +334,13 @@
   window.YurtaApp = { som, go: (h) => go(h) };
 
   /* ---------- Панель ---------- */
+  const svg = (d) => `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${d}</svg>`;
+  const ICON = {
+    walk: svg('<circle cx="13" cy="4" r="2"/><path d="M9 21l2-6 3 3v3M7 12l2-4 4 1 2 4 3 1"/><path d="M11 15l-1-5"/>'),
+    eye: svg('<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    doc: svg('<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/>'),
+    arrow: svg('<path d="M5 12h14M13 6l6 6-6 6"/>'),
+  };
   const backBtn = (href) => `<button class="back" data-go="${href}" aria-label="Назад"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>`;
   // Хлебные крошки: каждая часть — ссылка на свой уровень
   const crumbs = (back, parts) => `<nav class="crumbs" aria-label="Навигация">${backBtn(back)}${parts.map(([t, h], i) => (i ? '<span class="sep">/</span>' : '') + (h ? `<a href="${h}" data-go="${h}">${esc(t)}</a>` : `<b>${esc(t)}</b>`)).join('')}</nav>`;
@@ -648,7 +655,11 @@
       <div style="margin:14px 0 4px" class="price">${som(price)}</div>
       <div class="small">${som(priceM2(p, b))} за м² · сдача ${esc(p.completion)}</div>
       <div style="margin-top:14px">${planHtml(p, b, f)}</div>
-      <div class="apt-tools"><button class="tool tour-btn" id="tourBtn">🚶 3D-тур по квартире<span>погуляйте по комнатам · потолок ${String(p.ceiling || 2.8).replace('.', ',')} м</span></button><button class="tool" id="winView">👁 Вид из окна</button><button class="tool" id="offerBtn">📄 Расчёт в WhatsApp / PDF</button></div>
+      <div class="apt-tools">
+        <button class="tool tour-btn" id="tourBtn"><i class="ti">${ICON.walk}</i><span class="tt"><b>3D-тур по квартире</b><small>погуляйте по комнатам · потолок ${String(p.ceiling || 2.8).replace('.', ',')} м</small></span><i class="ta">${ICON.arrow}</i></button>
+        <button class="tool" id="winView"><i class="ti">${ICON.eye}</i><span class="tt"><b>Вид из окна</b><small>с вашего этажа</small></span></button>
+        <button class="tool" id="offerBtn"><i class="ti">${ICON.doc}</i><span class="tt"><b>Расчёт</b><small>WhatsApp / PDF</small></span></button>
+      </div>
       <div class="calc">
         <h3>Рассчитать рассрочку</h3>
         <label>Первоначальный взнос <b id="cDown"></b></label>
@@ -680,7 +691,7 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
-    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.img, planW: b.plan.w, planH: b.plan.h, poly: a.poly, area: a.area, height: p.ceiling || 2.8 });
+    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, area: a.area, height: p.ceiling || 2.8 });
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);

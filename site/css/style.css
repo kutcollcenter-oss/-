@@ -334,8 +334,6 @@ body.window-view .chat-panel { display: none; }
 body.window-view .pmarker { display: none !important; }
 
 /* ---------- 3D-тур по квартире ---------- */
-.tour-btn { grid-column: 1 / -1; background: var(--ink) !important; color: #fff; border-color: var(--ink) !important; padding: 13px 8px !important; font-size: 14px !important; }
-.tour-btn span { display: block; font-weight: 500; font-size: 11px; opacity: .7; margin-top: 2px; }
 .tour { position: fixed; inset: 0; z-index: 50; background: #cfe3f5; }
 .tour canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 .tour-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 10px; align-items: center; background: rgba(20,22,26,.85); color: #fff; border-radius: 16px; padding: 10px 12px; }
@@ -351,3 +349,92 @@ body.window-view .pmarker { display: none !important; }
 .tour-joy[hidden] { display: none; }
 .tour-joy i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.3); }
 @media (max-width: 760px) { .tour-top { flex-wrap: wrap; } .tour-top > div:first-child { flex-basis: calc(100% - 50px); } .tour-modes { order: 3; flex: 1; } .tour-modes button { flex: 1; } }
+.tour-dims { border: 0; background: rgba(255,255,255,.12); color: #fff; padding: 9px 12px; border-radius: 12px; font-weight: 700; font-size: 13px; flex: none; }
+.tour-dims.on { background: #fff; color: var(--ink); }
+.tour-dims[hidden] { display: none; }
+
+/* =====================================================================
+   Кнопки: единый стиль по всему сайту
+   ===================================================================== */
+:root { --grad: linear-gradient(135deg, #e8693a 0%, #d4572a 55%, #bf4520 100%); --grad-dark: linear-gradient(135deg, #2a2e36 0%, #14161a 100%); --ring: 0 0 0 3px rgba(212, 87, 42, .28); }
+button, a.cta { -webkit-tap-highlight-color: transparent; }
+button:focus-visible, a:focus-visible, input:focus-visible { outline: none; box-shadow: var(--ring); }
+button:disabled { cursor: not-allowed; }
+
+/* Главная кнопка */
+.cta { position: relative; overflow: hidden; background: var(--grad); box-shadow: 0 8px 22px rgba(212, 87, 42, .32), inset 0 1px 0 rgba(255,255,255,.18); letter-spacing: -.01em; transition: transform .15s, box-shadow .15s, filter .15s; }
+.cta:hover { background: var(--grad); filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 12px 28px rgba(212, 87, 42, .38), inset 0 1px 0 rgba(255,255,255,.18); }
+.cta:active { transform: translateY(0) scale(.99); box-shadow: 0 4px 12px rgba(212, 87, 42, .3); }
+.cta::after { content: ''; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%; background: linear-gradient(100deg, transparent, rgba(255,255,255,.28), transparent); transform: skewX(-18deg); transition: left .6s; }
+.cta:hover::after { left: 120%; }
+.cta:disabled { background: #d9d6d1; color: #8a909a; box-shadow: none; transform: none; filter: none; }
+.cta:disabled::after { display: none; }
+.cta.ghost { background: #fff; color: var(--ink); border: 1.5px solid var(--line); box-shadow: 0 1px 2px rgba(20,22,26,.04); margin-top: 10px; }
+.cta.ghost:hover { background: #fff; border-color: var(--ink); box-shadow: 0 6px 16px rgba(20,22,26,.08); }
+.cta.ghost::after { display: none; }
+.cta.wa { background: linear-gradient(135deg, #34d97b, #1fb457); box-shadow: 0 8px 22px rgba(31, 180, 87, .3); }
+.cta.wa:hover { background: linear-gradient(135deg, #34d97b, #1fb457); }
+
+/* Инструменты квартиры */
+.apt-tools { gap: 10px; margin-top: 12px; }
+.tool { display: flex; align-items: center; gap: 10px; text-align: left; border: 1.5px solid var(--line); background: linear-gradient(180deg, #fff, #faf8f5); border-radius: 14px; padding: 11px 12px; transition: transform .15s, border-color .15s, box-shadow .15s; }
+.tool:hover { background: linear-gradient(180deg, #fff, #fdf5f1); border-color: rgba(212, 87, 42, .55); transform: translateY(-1px); box-shadow: 0 8px 18px rgba(212, 87, 42, .12); }
+.tool:active { transform: scale(.98); }
+.tool .ti { flex: none; width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: #fdeee7; color: var(--accent); font-style: normal; }
+.tool .tt { min-width: 0; display: block; }
+.tool .tt b { display: block; font-size: 13.5px; font-weight: 800; line-height: 1.2; }
+.tool .tt small { display: block; font-size: 11px; font-weight: 600; color: var(--ink-3); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tour-btn { grid-column: 1 / -1; background: var(--grad-dark); color: #fff; border: 0; padding: 14px; box-shadow: 0 10px 26px rgba(20, 22, 26, .25); }
+.tour-btn:hover { background: var(--grad-dark); border: 0; box-shadow: 0 14px 30px rgba(20, 22, 26, .32); }
+.tour-btn .ti { width: 44px; height: 44px; border-radius: 13px; background: var(--grad); color: #fff; box-shadow: 0 6px 14px rgba(212, 87, 42, .45); }
+.tour-btn .tt { flex: 1; } .tour-btn .tt b { font-size: 15.5px; } .tour-btn .tt small { color: rgba(255,255,255,.65); }
+.tour-btn .ta { font-style: normal; width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: rgba(255,255,255,.1); transition: transform .2s, background .2s; }
+.tour-btn:hover .ta { transform: translateX(3px); background: rgba(255,255,255,.18); }
+
+/* Круглые кнопки «назад», этажи */
+.back { background: #fff; border: 1.5px solid var(--line); color: var(--ink); transition: border-color .15s, transform .15s, box-shadow .15s; }
+.back:hover { background: #fff; border-color: var(--ink); box-shadow: 0 4px 12px rgba(20,22,26,.1); }
+.back:active { transform: scale(.94); }
+.back:disabled { opacity: .35; box-shadow: none; border-color: var(--line); }
+
+/* Чипы и фильтры */
+.chip, .bchip { transition: border-color .15s, background .15s, color .15s, transform .15s, box-shadow .15s; border-width: 1.5px; }
+.chip:hover { border-color: var(--ink); }
+.chip.active, .bchip.on { background: var(--grad-dark); border-color: transparent; box-shadow: 0 4px 12px rgba(20,22,26,.2); }
+.bchip:hover { background: #fff8f5; }
+.bchip:active, .chip:active { transform: scale(.96); }
+.bcustom button { background: var(--grad-dark); transition: filter .15s; } .bcustom button:hover { filter: brightness(1.25); }
+.b-done { border: 1.5px solid transparent; transition: border-color .15s; } .b-done:hover { border-color: var(--line); }
+
+/* Блоки и этажи */
+.block-btn, .floor-btn { border-width: 1.5px; transition: transform .15s, border-color .15s, box-shadow .15s, background .15s; }
+.block-btn:hover, .floor-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 18px rgba(212, 87, 42, .14); }
+.block-btn.on, .floor-btn.on { background: linear-gradient(180deg, #fff4ef, #fde8de); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* Ссылки-кнопки */
+.link-btn { position: relative; transition: color .15s; }
+.link-btn::after { content: ''; position: absolute; left: 0; right: 0; bottom: 2px; height: 1.5px; background: currentColor; transform: scaleX(0); transform-origin: left; transition: transform .2s; }
+.link-btn:hover { color: var(--accent-2); } .link-btn:hover::after { transform: scaleX(1); }
+
+/* Закрыть, избранное, сравнение */
+.modal-close, .yc-close { transition: transform .2s, background .15s; }
+.modal-close:hover, .yc-close:hover { transform: rotate(90deg); background: #ece8e2; }
+.fav.big { border: 1.5px solid var(--line); background: #fff; transition: transform .15s, border-color .15s; }
+.fav.big:hover { border-color: #e0465a; }
+#cmpBar { background: var(--grad-dark); padding: 12px 20px; transition: transform .15s, box-shadow .15s; }
+#cmpBar:hover { transform: translateY(-2px); box-shadow: 0 16px 36px rgba(20,22,26,.3); }
+
+/* Панель «Вид из окна» */
+#winBar button { transition: background .15s, transform .15s; } #winBar button:hover:not(:disabled) { background: rgba(255,255,255,.24); }
+#winBar button.hl, #winBar .wb-sides button.on { background: var(--grad); } #winBar button.x:hover { background: #fff; transform: scale(1.03); }
+#winBar button:active:not(:disabled) { transform: scale(.96); }
+
+/* Кнопки 3D-тура */
+.tour-modes button { transition: background .15s; } .tour-modes button:hover:not(.on) { background: rgba(255,255,255,.12); }
+.tour-modes button.on { background: var(--grad); box-shadow: 0 4px 12px rgba(212, 87, 42, .45); }
+.tour-dims { transition: background .15s, color .15s; } .tour-dims:hover:not(.on) { background: rgba(255,255,255,.22); }
+.tour-x { transition: transform .2s; } .tour-x:hover { transform: rotate(90deg); }
+@media (max-width: 760px) {
+  .tour-x { order: 1; } .tour-modes { order: 3; } .tour-dims { order: 4; }
+  .tour-modes button, .tour-dims { white-space: nowrap; }
+}
