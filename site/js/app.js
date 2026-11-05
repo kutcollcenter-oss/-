@@ -648,7 +648,7 @@
       <div style="margin:14px 0 4px" class="price">${som(price)}</div>
       <div class="small">${som(priceM2(p, b))} за м² · сдача ${esc(p.completion)}</div>
       <div style="margin-top:14px">${planHtml(p, b, f)}</div>
-      <div class="apt-tools"><button class="tool" id="winView">👁 Вид из окна</button><button class="tool" id="offerBtn">📄 Расчёт в WhatsApp / PDF</button></div>
+      <div class="apt-tools"><button class="tool tour-btn" id="tourBtn">🚶 3D-тур по квартире<span>погуляйте по комнатам · потолок ${String(p.ceiling || 2.8).replace('.', ',')} м</span></button><button class="tool" id="winView">👁 Вид из окна</button><button class="tool" id="offerBtn">📄 Расчёт в WhatsApp / PDF</button></div>
       <div class="calc">
         <h3>Рассчитать рассрочку</h3>
         <label>Первоначальный взнос <b id="cDown"></b></label>
@@ -680,6 +680,7 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
+    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.img, planW: b.plan.w, planH: b.plan.h, poly: a.poly, area: a.area, height: p.ceiling || 2.8 });
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);

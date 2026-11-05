@@ -189,6 +189,7 @@ window.YURTA_PROJECTS = [
     firstResidentialFloor: 4,
     residentialBase: 13.2, // отметка пола 4-го этажа
     floorHeight: 3.15,
+    ceiling: 3.0, // высота потолка в квартире, м (для 3D-тура)
     blockBase: 9.0,        // блоки начинаются над стилобатом
     plot: GOLD_PLOT,
     volumes: [
@@ -263,6 +264,7 @@ window.YURTA_PROJECTS = [
     firstResidentialFloor: 2,
     residentialBase: 3.6,
     floorHeight: 3.0,
+    ceiling: 2.8, // высота потолка в квартире, м (для 3D-тура)
     blockBase: 0,
     plot: ORDO_PLOT,
     volumes: [
@@ -355,6 +357,7 @@ window.YURTA_PROJECTS = [
     firstResidentialFloor: 2,
     residentialBase: 3.6,
     floorHeight: 3.0,
+    ceiling: 2.8, // высота потолка в квартире, м (для 3D-тура)
     blockBase: 0,
     plot: [[-32, -146], [97, -146], [97, 203], [44, 203], [44, 103], [-14, 103]],
     volumes: [

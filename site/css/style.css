@@ -332,3 +332,22 @@ body.window-view .chat-panel { display: none; }
 #winBar .wb-sides button { padding: 6px 12px; }
 #winBar .wb-sides button.on { background: var(--accent); }
 body.window-view .pmarker { display: none !important; }
+
+/* ---------- 3D-тур по квартире ---------- */
+.tour-btn { grid-column: 1 / -1; background: var(--ink) !important; color: #fff; border-color: var(--ink) !important; padding: 13px 8px !important; font-size: 14px !important; }
+.tour-btn span { display: block; font-weight: 500; font-size: 11px; opacity: .7; margin-top: 2px; }
+.tour { position: fixed; inset: 0; z-index: 50; background: #cfe3f5; }
+.tour canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+.tour-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 10px; align-items: center; background: rgba(20,22,26,.85); color: #fff; border-radius: 16px; padding: 10px 12px; }
+.tour-top > div:first-child { flex: 1; min-width: 0; } .tour-top b { display: block; font-size: 15px; }
+.tour-top span { font-size: 12px; opacity: .75; display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tour-modes { display: flex; background: rgba(255,255,255,.12); border-radius: 12px; padding: 3px; }
+.tour-modes button { border: 0; background: none; color: #fff; padding: 8px 12px; border-radius: 9px; font-weight: 700; font-size: 13px; }
+.tour-modes button.on { background: var(--accent); }
+.tour-x { border: 0; background: #fff; color: var(--ink); width: 36px; height: 36px; border-radius: 50%; font-size: 15px; flex: none; }
+.tour-help { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); background: rgba(20,22,26,.75); color: #fff; font-size: 12px; padding: 8px 14px; border-radius: 999px; pointer-events: none; text-align: center; max-width: calc(100vw - 32px); }
+.tour-msg { position: absolute; inset: 0; display: grid; place-items: center; font-weight: 700; color: var(--ink); padding: 20px; text-align: center; }
+.tour-joy { position: absolute; left: 24px; bottom: 60px; width: 120px; height: 120px; border-radius: 50%; background: rgba(20,22,26,.25); border: 2px solid rgba(255,255,255,.6); touch-action: none; }
+.tour-joy[hidden] { display: none; }
+.tour-joy i { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: #fff; box-shadow: 0 4px 12px rgba(0,0,0,.3); }
+@media (max-width: 760px) { .tour-top { flex-wrap: wrap; } .tour-top > div:first-child { flex-basis: calc(100% - 50px); } .tour-modes { order: 3; flex: 1; } .tour-modes button { flex: 1; } }
