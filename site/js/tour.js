@@ -280,8 +280,27 @@
     scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, 0, 0.85])), new THREE.MeshLambertMaterial({ color: 0xe6e2da })));
     scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, height - 0.45, height])), wallMat));
     const glass = new THREE.Mesh(boxesGeometry(ops.map(([x0, z0, x1, z1]) => { const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, wide = x1 - x0 > z1 - z0; return wide ? [x0, cz - 0.01, x1, cz + 0.01, 0.85, height - 0.45] : [cx - 0.01, z0, cx + 0.01, z1, 0.85, height - 0.45]; })),
-      new THREE.MeshLambertMaterial({ color: 0xbfe3ff, transparent: true, opacity: 0.18, depthWrite: false }));
+      new THREE.MeshLambertMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.1, depthWrite: false }));
     scene.add(glass);
+    // рамы ПВХ: коробка по контуру, импосты между створками, подоконник внутри
+    const frames = [], sills = [], y0 = 0.85, y1 = height - 0.45;
+    for (const q of A.comps || []) {
+      if (q.kind !== 'window' || q.len < 0.35) continue;
+      const s0 = (q.horiz ? q.x0 : q.y0) * c, s1 = ((q.horiz ? q.x1 : q.y1) + 1) * c;
+      const t0 = (q.horiz ? q.y0 : q.x0) * c, t1 = ((q.horiz ? q.y1 : q.x1) + 1) * c, tc = (t0 + t1) / 2;
+      const nIn = -(q.horiz ? q.n[1] : q.n[0]); // направление внутрь квартиры поперёк стены
+      const box = (u0, u1, v0, v1, a, b) => (q.horiz ? [u0, Math.min(v0, v1), u1, Math.max(v0, v1), a, b] : [Math.min(v0, v1), u0, Math.max(v0, v1), u1, a, b]);
+      const F = 0.06, D = 0.035;
+      frames.push(box(s0, s0 + F, tc - D, tc + D, y0, y1), box(s1 - F, s1, tc - D, tc + D, y0, y1),
+        box(s0, s1, tc - D, tc + D, y0, y0 + F), box(s0, s1, tc - D, tc + D, y1 - F, y1));
+      const sashes = Math.max(1, Math.round((s1 - s0) / 0.8));
+      for (let k = 1; k < sashes; k++) { const u = s0 + (s1 - s0) * k / sashes; frames.push(box(u - 0.035, u + 0.035, tc - D, tc + D, y0, y1)); }
+      if (y1 - y0 > 1.6) frames.push(box(s0, s1, tc - D, tc + D, y1 - 0.5, y1 - 0.45)); // фрамуга сверху
+      const inner = nIn > 0 ? Math.max(t0, t1) : Math.min(t0, t1);
+      sills.push(box(s0 - 0.05, s1 + 0.05, tc, inner + nIn * 0.22, y0 - 0.04, y0));
+    }
+    if (frames.length) scene.add(new THREE.Mesh(boxesGeometry(frames), new THREE.MeshLambertMaterial({ color: 0xfbfbf9 })));
+    if (sills.length) scene.add(new THREE.Mesh(boxesGeometry(sills), new THREE.MeshLambertMaterial({ color: 0xffffff })));
     // пол — сама планировка
     const shape = new THREE.Shape(A.polyM.map(([x, z]) => new THREE.Vector2(x, -z)));
     const fg = new THREE.ShapeGeometry(shape), pos = fg.attributes.position, uv = [];
@@ -295,7 +314,34 @@
     // земля далеко внизу — вид в окно
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x9cbf7d }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(A.wm / 2, -25, A.hm / 2); scene.add(ground);
-    return { scene, floor, ceil, walls, tex, ground, dims };
+    const pano = new THREE.Group(); scene.add(pano);
+    return { scene, floor, ceil, walls, tex, ground, dims, pano };
+  }
+
+  /* ---------- Вид из окон: снимки карты с высоты квартиры на кольце вокруг ---------- */
+  function addPanorama(B, A, v) {
+    const R = 90, ctr = A.polyM.reduce((s, q) => [s[0] + q[0] / A.polyM.length, s[1] + q[1] / A.polyM.length], [0, 0]);
+    B.ground.position.y = -Math.max(3, v.eyeH - EYE); // земля — на настоящей высоте этажа
+    B.ground.material.depthWrite = false; B.ground.renderOrder = -2; B.ground.material.color.set(0xe6e1d8); // цвет земли как на карте
+    const loader = new THREE.TextureLoader();
+    v.shots.forEach((s, i) => {
+      const hf = s.hfov * Math.PI / 180, h = 2 * R * Math.tan(s.vfov * Math.PI / 360);
+      const th = Math.PI - s.yaw * Math.PI / 180;
+      const tex = loader.load(s.url, (tx) => {
+        if (i) return; // небо сцены — того же цвета, что верх снимка, чтобы не было шва
+        const cv = document.createElement('canvas'); cv.width = 8; cv.height = 1; const g = cv.getContext('2d');
+        g.drawImage(tx.image, 0, 0, tx.image.width, 4, 0, 0, 8, 1);
+        const d = g.getImageData(0, 0, 8, 1).data; let r = 0, gg = 0, b = 0; for (let k = 0; k < 32; k += 4) { r += d[k]; gg += d[k + 1]; b += d[k + 2]; }
+        B.sky = new THREE.Color(r / 8 / 255, gg / 8 / 255, b / 8 / 255);
+        if (B.pano.visible) B.scene.background = B.sky;
+      });
+      tex.repeat.x = -1; tex.offset.x = 1; // слева направо = поворот направо
+      const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, h, 24, 1, true, th - hf / 2, hf),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false }));
+      m.position.set(ctr[0], EYE - R * Math.tan(s.down * Math.PI / 180), ctr[1]);
+      m.renderOrder = -1 + i * 0.001;
+      B.pano.add(m);
+    });
   }
 
   /* ---------- Бронированная входная дверь ---------- */
@@ -475,7 +521,7 @@
     const setMode = (m) => {
       T.mode = m; T.target = null;
       root.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
-      B.ceil.visible = m === 'walk'; B.ground.visible = m === 'walk';
+      B.ceil.visible = m === 'walk'; B.ground.visible = m === 'walk'; B.pano.visible = m === 'walk'; B.scene.background = m === 'walk' && B.sky ? B.sky : new THREE.Color(0xcfe3f5);
       joy.hidden = !(m === 'walk' && touch);
       help.textContent = m === 'walk'
         ? (touch ? 'Джойстик слева — идти, проведите пальцем — осмотреться, коснитесь пола — перейти туда' : 'W A S D или стрелки — идти · тяните мышью — осмотреться · клик по полу — перейти туда')
@@ -486,6 +532,14 @@
     dimBtn.hidden = !A.rooms.length;
     dimBtn.onclick = () => { B.dims.visible = !B.dims.visible; dimBtn.classList.toggle('on', B.dims.visible); };
     setMode('top');
+    if (o.view) {
+      const note = document.createElement('div'); note.className = 'tour-note'; note.textContent = '🌇 Загружаю вид из окон…'; root.append(note);
+      o.view.then((v) => {
+        if (!T || T.renderer !== renderer) return;
+        if (v && v.shots.length) { addPanorama(B, A, v); note.textContent = '🌇 За окнами — вид с вашего этажа'; setTimeout(() => note.remove(), 3500); }
+        else note.remove();
+      });
+    }
 
     // управление мышью и пальцем
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
@@ -497,7 +551,8 @@
       pts.set(e.pointerId, [e.clientX, e.clientY]);
       if (pts.size === 2 && pinch) { const [a, b] = [...pts.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); orbit.r = Math.max(4, Math.min(60, orbit.r * pinch / d)); pinch = d; drag.moved = 99; return; }
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY; drag.moved += Math.abs(dx) + Math.abs(dy);
-      if (T.mode === 'walk') { walk.yaw += dx * 0.005; walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch - dy * 0.004)); }
+      // в прогулке «тянем картинку»: мышь вправо — вид поворачивается влево, как в панорамах
+      if (T.mode === 'walk') { walk.yaw -= dx * 0.005; walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch + dy * 0.004)); }
       else { orbit.yaw += dx * 0.006; orbit.pitch = Math.max(0.25, Math.min(1.5, orbit.pitch + dy * 0.005)); }
     });
     const up = (e) => {

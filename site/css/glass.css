@@ -134,3 +134,7 @@
 @media (max-width: 760px) {
   .panel { border-radius: 28px 28px 0 0; }
 }
+
+/* Кнопка 3D-тура остаётся тёмной и при наведении — иначе белый текст пропадает */
+.tool.tour-btn, .tool.tour-btn:hover { background: linear-gradient(180deg, rgba(44, 48, 58, .86), rgba(18, 20, 24, .9)) !important; color: #fff; }
+.tool.tour-btn:hover { background: linear-gradient(180deg, rgba(58, 63, 75, .9), rgba(24, 26, 32, .92)) !important; box-shadow: var(--edge-dark), 0 16px 34px rgba(20,22,26,.34) !important; }

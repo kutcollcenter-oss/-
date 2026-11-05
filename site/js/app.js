@@ -691,7 +691,7 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
-    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, area: a.area, height: p.ceiling || 2.8 });
+    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, area: a.area, height: p.ceiling || 2.8, view: capturePanorama(p, b, f, a) });
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);
@@ -961,6 +961,53 @@
   }
   const origBuildingPaint = { op: 1, col: '#e0dcd5' };
   map.on('load', () => { try { origBuildingPaint.op = map.getPaintProperty('building-3d', 'fill-extrusion-opacity') ?? 1; origBuildingPaint.col = map.getPaintProperty('building-3d', 'fill-extrusion-color'); } catch (e) {} });
+
+  /* ---------- Панорама для 3D-тура: снимки карты с высоты квартиры в стороны, куда выходят окна ---------- */
+  const panoCache = {};
+  const waitIdle = () => new Promise((r) => { const t = setTimeout(r, 3500); map.once('idle', () => { clearTimeout(t); r(); }); });
+  // кадр берём сразу после отрисовки, пока буфер WebGL ещё не очищен
+  const grabFrame = () => new Promise((r) => {
+    map.once('render', () => {
+      const cv = map.getCanvas(), out = document.createElement('canvas');
+      out.width = 1280; out.height = Math.round(1280 * cv.height / cv.width);
+      out.getContext('2d').drawImage(cv, 0, 0, out.width, out.height);
+      r(out.toDataURL('image/jpeg', 0.84));
+    });
+    map.triggerRepaint();
+  });
+  function capturePanorama(p, b, f, a) {
+    const key = `${p.id}/${b.id}/${f}/${a.n}`;
+    if (panoCache[key]) return panoCache[key];
+    const run = async () => {
+      const sides = windowSides(p, b, a, f).slice(0, 3);
+      if (!sides.length) return null;
+      const save = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
+      const cv = map.getCanvas(), vfov = map.transform.fov || 36.87, PITCH = 85;
+      const hfov = 2 * Math.atan(Math.tan(vfov / 2 / DEG) * cv.clientWidth / cv.clientHeight) * DEG;
+      map.setMaxPitch(85);
+      if (engine) engine.focusBlock(null, b, []); // соседние блоки — не прозрачные, как в жизни
+      try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95); map.setPaintProperty('building-3d', 'fill-extrusion-color', '#d6d0c6'); } catch (e) {}
+      const eyeH = floorBase(p, f) + 1.6, shots = [];
+      try {
+        for (const s of sides) for (const k of [-1, 0, 1]) {
+          const az = (s.az + k * hfov * 0.8 + 360) % 360;
+          placeCamera(s.eye, eyeH, az, PITCH, false);
+          await waitIdle();
+          shots.push({ url: await grabFrame(), az, hfov, vfov, down: 90 - PITCH });
+        }
+      } finally {
+        try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', origBuildingPaint.op); map.setPaintProperty('building-3d', 'fill-extrusion-color', origBuildingPaint.col); } catch (e) {}
+        if (engine && state.block) engine.focusBlock(state.project, state.block, focusTargets(state.project, state.block, state.floor, state.apt));
+        map.jumpTo(save);
+        if (!viewMode) map.setMaxPitch(75);
+      }
+      // куда на карте смотрит «верх» плана — чтобы повернуть снимки в системе координат тура
+      const [u0, u1] = planToLocal(p, b, [[0, 0], [0, -100]]);
+      const up = (azim(u1[0] - u0[0], u1[1] - u0[1]) - (p.rotation || 0) + 360) % 360;
+      return { eyeH, shots: shots.map((s) => ({ ...s, yaw: ((s.az - up + 540) % 360) - 180 })) };
+    };
+    return (panoCache[key] = run().catch((e) => { console.warn('panorama', e); delete panoCache[key]; return null; }));
+  }
 
   /* ---------- Подсветка на 3D квартир, подходящих по бюджету ---------- */
   function updateMatches(tries = 0) {
