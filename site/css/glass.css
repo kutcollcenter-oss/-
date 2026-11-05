@@ -1,0 +1,136 @@
+/* =====================================================================
+   «Жидкое стекло» — стиль в духе iOS: полупрозрачные панели с размытием,
+   светлая кромка-блик по краю, крупные скругления, кнопки-«капли».
+   Подключается последним и переопределяет style.css / chat.css.
+   ===================================================================== */
+:root {
+  --glass: rgba(255, 255, 255, .58);
+  --glass-hi: rgba(255, 255, 255, .74);
+  --glass-in: rgba(255, 255, 255, .46);        /* вложенные карточки внутри стекла */
+  --glass-dark: rgba(24, 26, 32, .58);
+  --blur: blur(26px) saturate(190%);
+  --blur-sm: blur(14px) saturate(180%);
+  /* кромка: яркий блик сверху, мягкий снизу, тонкая светлая обводка */
+  --edge: inset 0 1px 1px rgba(255,255,255,.95), inset 0 -1px 1px rgba(255,255,255,.35), inset 0 0 0 1px rgba(255,255,255,.5);
+  --edge-dark: inset 0 1px 1px rgba(255,255,255,.28), inset 0 -1px 1px rgba(255,255,255,.08), inset 0 0 0 1px rgba(255,255,255,.14);
+  --float: 0 18px 50px rgba(20, 22, 26, .18), 0 2px 6px rgba(20, 22, 26, .06);
+  --bg: rgba(255, 255, 255, .55);
+  --bg-2: rgba(255, 255, 255, .42);
+  --line: rgba(20, 22, 26, .09);
+  --radius: 20px;
+}
+
+/* Общий рецепт стекла */
+.topbar, .panel, .chat-panel, .staff-dock, .modal-card, .yc-card, .maplibregl-ctrl-group, .place-mk, .tooltip, #winBar, .tour-top, .tour-help, .toast, #cmpBar, .chat-fab {
+  -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur);
+}
+.topbar, .panel, .chat-panel, .staff-dock, .modal-card, .yc-card, .maplibregl-ctrl-group, .place-mk {
+  background: var(--glass) !important; box-shadow: var(--edge), var(--float) !important;
+}
+/* мягкий световой отблеск в верхнем левом углу */
+.panel::before, .chat-panel::before, .topbar::before, .modal-card::before {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 0;
+  background: radial-gradient(120% 60% at 0% 0%, rgba(255,255,255,.55), transparent 55%), linear-gradient(180deg, rgba(255,255,255,.18), transparent 30%);
+}
+.panel > *, .chat-panel > *, .topbar > *, .modal-card > * { position: relative; z-index: 1; }
+.modal-card > .modal-close { position: absolute; }
+
+/* Тёмное стекло */
+.tooltip, #winBar, .tour-top, .tour-help, .toast, #cmpBar, .chat-panel header, .staff-dock > header {
+  background: var(--glass-dark) !important; box-shadow: var(--edge-dark), 0 16px 40px rgba(0,0,0,.25) !important;
+}
+.chat-panel header, .staff-dock > header { box-shadow: inset 0 -1px 0 rgba(255,255,255,.08) !important; }
+
+/* Скругления крупнее, как в iOS */
+.panel { border-radius: 30px; }
+.topbar { border-radius: 999px; }
+.chat-panel, .staff-dock, .modal-card, .yc-card { border-radius: 28px; }
+.tour-top { border-radius: 22px; }
+
+/* Панель */
+.panel-body::-webkit-scrollbar-thumb { background: rgba(20,22,26,.15); }
+.card, .rcard, .nearby, .progress-box, .budget, .calc, .fact, .sunbox, .plan-wrap, .mini-plan {
+  background: var(--glass-in); border: 0; box-shadow: var(--edge);
+}
+.card { overflow: hidden; }
+.card:hover { box-shadow: var(--edge), 0 12px 28px rgba(20,22,26,.12); }
+.plan-wrap { background: rgba(255,255,255,.9); }
+.monthly, .b-done { background: rgba(255,255,255,.66); box-shadow: var(--edge); }
+.sunbox { background: linear-gradient(180deg, rgba(255,240,205,.55), rgba(255,255,255,.35)); }
+.offer { box-shadow: inset 0 1px 1px rgba(255,255,255,.25), 0 10px 26px rgba(20,22,26,.18); }
+.tag { background: rgba(255,255,255,.55); box-shadow: inset 0 0 0 1px rgba(255,255,255,.6); }
+.tag.hot { background: rgba(253, 233, 226, .8); }
+.apt-row, .rrow { border-color: var(--line); }
+.apt-row:hover, .rrow:hover, .nb-item:hover { background: rgba(255,255,255,.5); }
+.hint, .glow-note { box-shadow: var(--edge); }
+
+/* Кнопки-«капли»: стекло с бликом */
+.tool, .block-btn, .floor-btn, .chip, .bchip, .back, .fav.big, .cta.ghost, .qq, .vchip, .qbtn {
+  background: rgba(255,255,255,.5) !important; border-color: transparent !important; box-shadow: var(--edge), 0 2px 8px rgba(20,22,26,.06);
+  -webkit-backdrop-filter: var(--blur-sm); backdrop-filter: var(--blur-sm);
+}
+.tool:hover, .block-btn:hover, .floor-btn:hover, .chip:hover, .bchip:hover, .back:hover, .cta.ghost:hover, .qq:hover {
+  background: rgba(255,255,255,.78) !important; box-shadow: var(--edge), 0 10px 22px rgba(20,22,26,.12);
+}
+.tool { border-radius: 20px; } .tool .ti { border-radius: 14px; background: rgba(212,87,42,.12); box-shadow: inset 0 0 0 1px rgba(212,87,42,.12); }
+.block-btn.on, .floor-btn.on { background: rgba(255, 236, 226, .85) !important; box-shadow: var(--edge), inset 0 0 0 1.5px var(--accent) !important; }
+.chip.active, .bchip.on { background: rgba(24, 26, 32, .78) !important; color: #fff; box-shadow: var(--edge-dark), 0 6px 16px rgba(20,22,26,.25) !important; }
+.chip .cnt { background: rgba(255,255,255,.6); }
+.qq { color: var(--accent-2); }
+
+/* Главная кнопка: насыщенное стекло цвета акцента */
+.cta:not(.ghost):not(.wa), .tour-btn .ti, .send button, .chat-panel .contact button:not(.skip), .yc-btn, .toast .go, .tour-modes button.on, #winBar button.hl {
+  background: linear-gradient(180deg, rgba(240, 120, 72, .92), rgba(206, 78, 34, .92)) !important;
+  box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 -2px 4px rgba(120,30,0,.25), 0 10px 24px rgba(212, 87, 42, .35) !important;
+}
+.cta { border-radius: 999px; }
+.cta.wa { background: linear-gradient(180deg, rgba(60, 222, 130, .95), rgba(28, 172, 82, .95)) !important; box-shadow: inset 0 1px 1px rgba(255,255,255,.55), 0 10px 24px rgba(31, 180, 87, .3) !important; }
+.cta:disabled { background: rgba(200, 198, 194, .6) !important; box-shadow: var(--edge) !important; }
+.tour-btn { background: linear-gradient(180deg, rgba(44, 48, 58, .86), rgba(18, 20, 24, .9)) !important; box-shadow: var(--edge-dark), 0 14px 30px rgba(20,22,26,.28) !important; -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); }
+.tour-btn .ta { background: rgba(255,255,255,.14); box-shadow: var(--edge-dark); }
+
+/* Поля ввода */
+.field input, .bcustom input, .mform input, .mform select, .yc-form input:not([type=checkbox]), .chat-panel .contact input, .send textarea, .offer-link {
+  background: rgba(255,255,255,.6) !important; border-color: rgba(255,255,255,.7) !important; box-shadow: inset 0 1px 3px rgba(20,22,26,.08);
+}
+.send textarea:focus, .field input:focus { background: rgba(255,255,255,.85) !important; }
+.bcustom button { border-radius: 999px; }
+
+/* Чат */
+.chat-fab { background: linear-gradient(180deg, rgba(240, 120, 72, .9), rgba(206, 78, 34, .9)); box-shadow: inset 0 1px 1px rgba(255,255,255,.55), inset 0 -2px 4px rgba(120,30,0,.25), 0 14px 32px rgba(212, 87, 42, .4); }
+.chat-fab.active { background: var(--glass-dark); box-shadow: var(--edge-dark), 0 14px 32px rgba(0,0,0,.25); }
+.chat-fab .fab-ico { background: rgba(255,255,255,.2); box-shadow: inset 0 1px 1px rgba(255,255,255,.45); }
+.chat-panel .ctx, .quick-q, .send, .chat-panel .contact { background: transparent; border-color: rgba(255,255,255,.4); }
+.chat-panel .ctx { background: rgba(255, 240, 232, .55); }
+.msgs { background: transparent; }
+.msg .bubble { background: rgba(255,255,255,.75); box-shadow: var(--edge), 0 2px 8px rgba(20,22,26,.06); }
+.msg.mine .bubble { background: linear-gradient(180deg, rgba(240, 120, 72, .95), rgba(212, 87, 42, .95)); box-shadow: inset 0 1px 1px rgba(255,255,255,.45), 0 4px 12px rgba(212, 87, 42, .25); }
+.chat-panel .x, .staff-dock .acts button, .tour-x { background: rgba(255,255,255,.16) !important; box-shadow: var(--edge-dark); }
+.tour-x { background: rgba(255,255,255,.85) !important; box-shadow: var(--edge); }
+.staff-dock .item { background: transparent; } .staff-dock .item:hover { background: rgba(255,255,255,.45); }
+.staff-dock .item.unread { background: rgba(255, 236, 226, .6); }
+.staff-dock nav button.on { background: rgba(255,255,255,.7); box-shadow: var(--edge); }
+
+/* Карта: маркеры и кнопки управления */
+.pmarker .pill { background: var(--glass-dark); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: var(--edge-dark), 0 8px 20px rgba(0,0,0,.25); }
+.maplibregl-ctrl-group { border-radius: 16px !important; overflow: hidden; }
+.maplibregl-ctrl-group button { background: transparent !important; }
+.maplibregl-ctrl-group button + button { border-top-color: rgba(20,22,26,.08) !important; }
+.staff-login { background: rgba(255,255,255,.5); box-shadow: var(--edge); }
+
+/* 3D-тур */
+.tour-modes, .tour-dims { background: rgba(255,255,255,.12); box-shadow: var(--edge-dark); }
+.tour-dims.on { background: rgba(255,255,255,.88); box-shadow: var(--edge); }
+#winBar button:not(.hl):not(.x) { background: rgba(255,255,255,.14); box-shadow: var(--edge-dark); }
+#winBar button.x { background: rgba(255,255,255,.88); box-shadow: var(--edge); }
+
+/* Модальные окна: затемнение с лёгким размытием */
+.modal-backdrop, .yc-backdrop { background: rgba(20,22,26,.3); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+
+/* Если браузер не умеет размывать — делаем стекло плотнее, чтобы текст читался */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root { --glass: rgba(255,255,255,.94); --glass-dark: rgba(24,26,32,.94); --glass-in: rgba(246,244,240,.9); }
+}
+@media (max-width: 760px) {
+  .panel { border-radius: 28px 28px 0 0; }
+}

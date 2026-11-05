@@ -438,3 +438,7 @@ button:disabled { cursor: not-allowed; }
   .tour-x { order: 1; } .tour-modes { order: 3; } .tour-dims { order: 4; }
   .tour-modes button, .tour-dims { white-space: nowrap; }
 }
+
+/* Плашка «Избранное» — рядом с панелью, а не поверх неё */
+#cmpBar { left: calc(var(--panel-w) + 32px); bottom: 24px; }
+@media (max-width: 760px) { #cmpBar { left: 12px; right: auto; top: 70px; bottom: auto; padding: 9px 14px; font-size: 13px; } }

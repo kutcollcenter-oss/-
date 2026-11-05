@@ -370,10 +370,12 @@
   function addDims(group, r, H) {
     const mk = (text, Lm, vertical) => new THREE.Mesh(vertical ? new THREE.PlaneGeometry(DIM_H, Lm) : new THREE.PlaneGeometry(Lm, DIM_H),
       new THREE.MeshBasicMaterial({ map: dimTexture(text, Lm, vertical), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
-    const y = H - 0.2, gap = 0.012;
-    // ширина — на верхней по плану стене, длина — на левой, высота — в углу нижней стены
-    const a = mk(fmtM(r.w), r.w, false); a.position.set((r.x0 + r.x1) / 2, y, r.z0 + gap); group.add(a);
-    const b = mk(fmtM(r.l), r.l, false); b.position.set(r.x0 + gap, y, (r.z0 + r.z1) / 2); b.rotation.y = Math.PI / 2; group.add(b);
+    // размер — по центру каждой из четырёх стен, на уровне глаз; высота — вертикально в углу
+    const y = H / 2 + 0.35, gap = 0.012, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
+    const n = mk(fmtM(r.w), r.w, false); n.position.set(cx, y, r.z0 + gap); group.add(n);
+    const s = mk(fmtM(r.w), r.w, false); s.position.set(cx, y, r.z1 - gap); s.rotation.y = Math.PI; group.add(s);
+    const w = mk(fmtM(r.l), r.l, false); w.position.set(r.x0 + gap, y, cz); w.rotation.y = Math.PI / 2; group.add(w);
+    const e = mk(fmtM(r.l), r.l, false); e.position.set(r.x1 - gap, y, cz); e.rotation.y = -Math.PI / 2; group.add(e);
     const v = mk('h ' + fmtM(H), H, true); v.position.set(r.x0 + 0.2, H / 2, r.z1 - gap); v.rotation.y = Math.PI; group.add(v);
   }
 
