@@ -204,6 +204,18 @@
       const T = Math.max(0.22, Math.min(0.45, ds.length ? ds[ds.length >> 1] : 0.3));
       // разметка: стена — где сплошная стена занимает больше половины толщины, иначе окно
       const type = kinds.map((k, i) => (k !== 'ext' ? null : depth[i] >= T * 0.5 ? 'wall' : 'win'));
+      // со стороны коридора и соседей стену не трогаем, но если там пусто (на плане стена не распознана) —
+      // закрываем дыру: линии остекления на плане → окно, иначе → глухая стена
+      const has = (x, y, grids) => { const i = cellAt(x, y); return i >= 0 && grids.some((g) => g[i]); };
+      for (let k = 0; k < type.length; k++) {
+        if (type[k]) continue;
+        const s = Math.min(L, k * STEP), px = a[0] + u[0] * s, py = a[1] + u[1] * s;
+        let any = false, glazing = false;
+        for (let d = -0.35; d <= 0.6 && !any; d += c / 2) if (has(px + m[0] * d, py + m[1] * d, [A.wall, A.opening, A.doorCells])) any = true;
+        if (any) continue;
+        for (let d = -0.3; d <= 0.45 && !glazing; d += c / 2) if (has(px + m[0] * d, py + m[1] * d, [A.lines])) glazing = true;
+        type[k] = glazing && kinds[k] !== 'party' ? 'win' : 'wall';
+      }
       // окна уже 0,45 м превращаем в стену
       for (let i = 0; i < type.length;) { let j = i; while (j < type.length && type[j] === type[i]) j++; if (type[i] === 'win' && (j - i) * STEP < 0.45) for (let k = i; k < j; k++) type[k] = 'wall'; i = j; }
       for (let i = 0; i < type.length;) {
@@ -346,15 +358,16 @@
     if (A.door) buildDoor(scene, A.door, height, wallMat);
     const dims = new THREE.Group(); scene.add(dims);
     for (const r of A.rooms || []) addDims(dims, r, height);
-    // окна: подоконник 0,85 м и перемычка над окном, стекло
+    // окна высотой 1,80 м: подоконник 0,80 м, над окном перемычка
+    const y0 = 0.8, y1 = Math.min(height - 0.15, y0 + 1.8);
     const ops = R(A.opening);
-    scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, 0, 0.85])), wallMat));
-    scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, height - 0.45, height])), wallMat));
-    const glass = new THREE.Mesh(boxesGeometry(ops.map(([x0, z0, x1, z1]) => { const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, wide = x1 - x0 > z1 - z0; return wide ? [x0, cz - 0.01, x1, cz + 0.01, 0.85, height - 0.45] : [cx - 0.01, z0, cx + 0.01, z1, 0.85, height - 0.45]; })),
+    scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, 0, y0])), wallMat));
+    scene.add(new THREE.Mesh(boxesGeometry(ops.map((r) => [...r, y1, height])), wallMat));
+    const glass = new THREE.Mesh(boxesGeometry(ops.map(([x0, z0, x1, z1]) => { const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, wide = x1 - x0 > z1 - z0; return wide ? [x0, cz - 0.01, x1, cz + 0.01, y0, y1] : [cx - 0.01, z0, cx + 0.01, z1, y0, y1]; })),
       new THREE.MeshLambertMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.1, depthWrite: false }));
     scene.add(glass);
     // рамы ПВХ: коробка по контуру, импосты между створками, подоконник внутри
-    const frames = [], sills = [], y0 = 0.85, y1 = height - 0.45;
+    const frames = [], sills = [];
     for (const q of A.comps || []) {
       if (q.kind !== 'window' || q.len < 0.35 || !q.cells.some((j) => A.opening[j])) continue;
       const s0 = (q.horiz ? q.x0 : q.y0) * c, s1 = ((q.horiz ? q.x1 : q.y1) + 1) * c;
