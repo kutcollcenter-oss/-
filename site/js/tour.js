@@ -69,12 +69,19 @@
     for (let y = 0; y < h; y++) { let s0 = -1; for (let x = 0; x <= w; x++) { const on = x < w && lm[y * w + x]; if (on && s0 < 0) s0 = x; if (!on && s0 >= 0) { for (let q = s0; q < x; q++) hl[y * w + q] = x - s0; s0 = -1; } } }
     for (let x = 0; x < w; x++) { let s0 = -1; for (let y = 0; y <= h; y++) { const on = y < h && lm[y * w + x]; if (on && s0 < 0) s0 = y; if (!on && s0 >= 0) { for (let q = s0; q < y; q++) vl[q * w + x] = y - s0; s0 = -1; } } }
     for (let k = 0; k < w * h; k++) if ((hl[k] >= minRun && vl[k] <= thin) || (vl[k] >= minRun && hl[k] <= thin)) lineAt[k] = 1;
+    // остекление окон: на некоторых планах это однопиксельные светло-серые линии — ищем их отдельно (длиннее 0,4 м)
+    const glzAt = new Uint8Array(w * h), gRun = Math.round(0.4 / mpp), gl = new Uint8Array(w * h);
+    for (let k = 0; k < w * h; k++) { const i = k * 4, r = px[i], gg = px[i + 1], b = px[i + 2]; gl[k] = (0.3 * r + 0.59 * gg + 0.11 * b) < 222 && Math.max(r, gg, b) - Math.min(r, gg, b) < 26 ? 1 : 0; }
+    hl.fill(0); vl.fill(0);
+    for (let y = 0; y < h; y++) { let s0 = -1; for (let x = 0; x <= w; x++) { const on = x < w && gl[y * w + x]; if (on && s0 < 0) s0 = x; if (!on && s0 >= 0) { for (let q = s0; q < x; q++) hl[y * w + q] = x - s0; s0 = -1; } } }
+    for (let x = 0; x < w; x++) { let s0 = -1; for (let y = 0; y <= h; y++) { const on = y < h && gl[y * w + x]; if (on && s0 < 0) s0 = y; if (!on && s0 >= 0) { for (let q = s0; q < y; q++) vl[q * w + x] = y - s0; s0 = -1; } } }
+    for (let k = 0; k < w * h; k++) if ((hl[k] >= gRun && vl[k] <= thin) || (vl[k] >= gRun && hl[k] <= thin)) glzAt[k] = 1;
     if (thr > 190) dark = morph(morph(morph(morph(dark, (c) => c === 9), (c) => c === 9), (c) => c > 0), (c) => c > 0); // серая заливка стен: убираем ещё и линии мебели
     // сетка 5 см
     const cp = Math.max(1, Math.round(CELL / mpp)), cell = cp * mpp;
     const W = Math.floor(w / cp), H = Math.floor(h / cp);
     const polyM = polyPx.map(([x, y]) => [(x - X0) * mpp, (y - Y0) * mpp]);
-    const wall = new Uint8Array(W * H), inner = new Uint8Array(W * H), edge = new Float32Array(W * H), lines = new Uint8Array(W * H);
+    const wall = new Uint8Array(W * H), inner = new Uint8Array(W * H), edge = new Float32Array(W * H), lines = new Uint8Array(W * H), glz = new Uint8Array(W * H);
     for (let cy = 0; cy < H; cy++) for (let cx = 0; cx < W; cx++) {
       let c = 0;
       for (let y = cy * cp; y < (cy + 1) * cp; y++) for (let x = cx * cp; x < (cx + 1) * cp; x++) c += dark[y * w + x];
@@ -85,6 +92,8 @@
       wall[i] = c / (cp * cp) >= 0.4 && inner[i] ? 1 : 0;
       let ln = 0; for (let y = cy * cp; y < (cy + 1) * cp; y++) for (let x = cx * cp; x < (cx + 1) * cp; x++) ln += lineAt[y * w + x];
       lines[i] = ln > 0 ? 1 : 0;
+      let gz = 0; for (let y = cy * cp; y < (cy + 1) * cp; y++) for (let x = cx * cp; x < (cx + 1) * cp; x++) gz += glzAt[y * w + x];
+      glz[i] = gz > 0 ? 1 : 0;
     }
     // убираем мелкие пятна (значки, подписи) меньше 0,06 м²
     const seen = new Uint8Array(W * H), minCells = 0.06 / (cell * cell);
@@ -106,7 +115,7 @@
     }
     let walls = 0; for (let i = 0; i < W * H; i++) walls += wall[i];
     const toM = ([x, y]) => [(x * sx - X0) * mpp, (y * sy - Y0) * mpp];
-    return { thr, k, mpp, toM, wallM2: walls * cell * cell, cv: fl, planCv: cv, W, H, cell, wall, lines, inner, edge, opening, polyM, wm: w * mpp, hm: h * mpp, ok: walls * cell * cell > 2.5 };
+    return { thr, k, mpp, toM, wallM2: walls * cell * cell, cv: fl, planCv: cv, W, H, cell, wall, lines, glz, inner, edge, opening, polyM, wm: w * mpp, hm: h * mpp, ok: walls * cell * cell > 2.5 };
   }
 
   /* ---------- Что за проёмом: окно, вход из коридора или стык с соседней квартирой ---------- */
@@ -183,7 +192,7 @@
       const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
       if (!pointInPoly([mid[0] + m[0] * 0.2, mid[1] + m[1] * 0.2], P)) m = [-m[0], -m[1]]; // m смотрит внутрь квартиры
       // что за стороной: соседняя квартира, коридор или улица (считаем раз в 0,5 м)
-      const n = Math.floor(L / STEP), kinds = [], depth = [];
+      const n = Math.floor(L / STEP), kinds = [], depth = [], glaze = [];
       let lastS = -1, lastKind = 'ext';
       for (let k = 0; k <= n; k++) {
         const s = Math.min(L, k * STEP), px = a[0] + u[0] * s, py = a[1] + u[1] * s;
@@ -201,12 +210,28 @@
           else if (d0 !== null) break;
         }
         depth.push(d0 === null ? 0 : Math.max(0, d1 + c / 2));
+        // остекление на чертеже: тонкие линии поперёк проёма
+        let gl = false;
+        for (let d = -0.15; d <= 0.45 && !gl; d += c / 2) { const i = cellAt(px + m[0] * d, py + m[1] * d); if (i >= 0 && (A.lines[i] || A.glz[i])) gl = true; }
+        glaze.push(gl);
       }
       // толщина наружной стены этой стороны — медиана по местам, где стена есть
       const ds = depth.filter((d, k) => kinds[k] === 'ext' && d > 0.12).sort((p, q) => p - q);
       const T = Math.max(0.22, Math.min(0.45, ds.length ? ds[ds.length >> 1] : 0.3));
       // разметка: стена — где сплошная стена занимает больше половины толщины, иначе окно
-      const type = kinds.map((k, i) => (k !== 'ext' ? null : depth[i] >= T * 0.5 ? 'wall' : 'win'));
+      // окно — только где на чертеже нет стены и нарисовано остекление; иначе стена (лишних окон не добавляем)
+      const solid = depth.map((d) => d >= T * 0.5);
+      const type = kinds.map((k, i) => (k !== 'ext' ? null : solid[i] ? 'wall' : 'gap'));
+      // разрыв в стене — окно, если на чертеже там остекление или это проём до 3,2 м между кусками стены
+      for (let i = 0; i < type.length;) {
+        if (type[i] !== 'gap') { i++; continue; }
+        let j = i; while (j < type.length && type[j] === 'gap') j++;
+        const len = (j - i) * STEP, gl = glaze.slice(i, j).filter(Boolean).length / (j - i);
+        const bounded = i > 0 && j < type.length && type[i - 1] === 'wall' && type[j] === 'wall';
+        const win = gl >= 0.3 || (bounded && len <= 3.2);
+        for (let k = i; k < j; k++) type[k] = win ? 'win' : 'wall';
+        i = j;
+      }
       // со стороны коридора и соседей стену не трогаем, но если там пусто (на плане стена не распознана) —
       // закрываем дыру: линии остекления на плане → окно, иначе → глухая стена
       const has = (x, y, grids) => { const i = cellAt(x, y); return i >= 0 && grids.some((g) => g[i]); };
@@ -216,7 +241,7 @@
         let any = false, glazing = false;
         for (let d = -0.35; d <= 0.6 && !any; d += c / 2) if (has(px + m[0] * d, py + m[1] * d, [A.wall, A.opening, A.doorCells])) any = true;
         if (any) continue;
-        for (let d = -0.3; d <= 0.45 && !glazing; d += c / 2) if (has(px + m[0] * d, py + m[1] * d, [A.lines])) glazing = true;
+        for (let d = -0.15; d <= 0.45 && !glazing; d += c / 2) if (has(px + m[0] * d, py + m[1] * d, [A.lines, A.glz])) glazing = true;
         type[k] = glazing && kinds[k] !== 'party' ? 'win' : 'wall';
       }
       // окна уже 0,45 м превращаем в стену
@@ -234,6 +259,150 @@
           const i = cellAt(a[0] + u[0] * (s + w) + m[0] * d, a[1] + u[1] * (s + w) + m[1] * d);
           if (i >= 0 && !A.doorCells[i]) { A.wall[i] = 0; A.opening[i] = 0; A.env[i] = 1; }
         }
+      }
+    }
+  }
+  /* ---------- Балконы и лоджии: стена с балконной дверью, пожарные люки в полу ---------- */
+  function balconies(A, o) {
+    const c = A.cell, W = A.W, H = A.H;
+    const cellAt = (x, y) => { const cx = Math.floor(x / c), cy = Math.floor(y / c); return cx < 0 || cy < 0 || cx >= W || cy >= H ? -1 : cy * W + cx; };
+    const words = (o.balc || []).map(A.toM);
+    const labs = (o.labels || []).filter(([, , v]) => v <= 6.5 && Math.abs(v - o.area) > 0.05).map(([x, y, v]) => [...A.toM([x, y]), v]).filter(([x, y]) => pointInPoly([x, y], A.polyM));
+    // остекление между комнатой и балконом бывает светлыми линиями, а значок люка дробит балкон —
+    // считаем оба варианта и берём тот, где площадь ближе к подписи на плане
+    const ra = seededRooms(A, labs, true), rb = seededRooms(A, labs, false);
+    const fit = (r) => (r ? Math.abs(r.w * r.l / r.label - 1) : 9);
+    const rooms = labs.map(([lx, lz, v]) => {
+      const p = ra.find((r) => r.label === v), q = rb.find((r) => r.label === v), best = fit(p) <= fit(q) ? p : q;
+      const named = words.some(([x, y]) => Math.hypot(x - lx, y - lz) < 2.2);
+      if (fit(best) <= 0.25 || (!named && v > 4.6)) return best;
+      // граница балкона на чертеже не видна, но он подписан «Балкон»: ширина — между боковыми стенами у наружной стены,
+      // глубина — площадь из подписи, делённая на ширину
+      let side = null;
+      for (const sp of A.envSpans) {
+        const s = (lx - sp.a[0]) * sp.u[0] + (lz - sp.a[1]) * sp.u[1], d = (lx - sp.a[0]) * sp.m[0] + (lz - sp.a[1]) * sp.m[1];
+        if (s >= sp.s0 - 0.05 && s <= sp.s1 + 0.05 && d > 0 && d < 3 && (!side || d < side.d)) side = { sp, s, d };
+      }
+      if (!side || (!named && side.d > 1.4)) return best;
+      const { sp } = side, blocked = (s, d) => { const x = sp.a[0] + sp.u[0] * s + sp.m[0] * d, y = sp.a[1] + sp.u[1] * s + sp.m[1] * d, i = cellAt(x, y); return i < 0 || A.wall[i] === 1 || !pointInPoly([x, y], A.polyM); };
+      const dd = sp.t + 0.3;
+      let s0 = side.s, s1 = side.s; while (!blocked(s0 - c, dd) && s0 - side.s > -8) s0 -= c; while (!blocked(s1 + c, dd) && s1 - side.s < 8) s1 += c;
+      const wd = s1 - s0; if (wd < 0.8) return best;
+      const depth = v / wd; if (named ? depth < 0.6 || depth > 2.2 : depth < 0.7 || depth > 1.6) return best;
+      const xs = [], zs = [];
+      for (const s of [s0, s1]) for (const d of [sp.t, sp.t + depth]) { xs.push(sp.a[0] + sp.u[0] * s + sp.m[0] * d); zs.push(sp.a[1] + sp.u[1] * s + sp.m[1] * d); }
+      const x0 = Math.min(...xs), x1 = Math.max(...xs), z0 = Math.min(...zs), z1 = Math.max(...zs);
+      return { x0, x1, z0, z1, w: x1 - x0, l: z1 - z0, label: v, byArea: true };
+    }).filter(Boolean);
+    const others = (o.others || []).map((p) => p.map(A.toM));
+    const inOther = (x, y) => others.some((p) => pointInPoly([x, y], p));
+    // сторона прямоугольника касается наружной стены?
+    const onEnv = (x, y) => { for (let d = -0.1; d <= 0.5; d += c) for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const i = cellAt(x + dx * d, y + dy * d); if (i >= 0 && A.env[i]) return true; } return false; };
+    A.balconies = [];
+    for (const r of rooms) {
+      if (window.__bd) (A.balcDbg = A.balcDbg || []).push(r.label + ":" + (r.w * r.l).toFixed(2));
+      if (Math.abs(r.w * r.l / r.label - 1) > 0.25) continue;
+      const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
+      const sides = [
+        { k: 'N', horiz: true, line: r.z0, a: r.x0, b: r.x1, out: -1 }, { k: 'S', horiz: true, line: r.z1, a: r.x0, b: r.x1, out: 1 },
+        { k: 'W', horiz: false, line: r.x0, a: r.z0, b: r.z1, out: -1 }, { k: 'E', horiz: false, line: r.x1, a: r.z0, b: r.z1, out: 1 },
+      ];
+      for (const s of sides) {
+        const mid = (s.a + s.b) / 2, len = s.b - s.a;
+        const p = (d) => (s.horiz ? [mid, s.line + s.out * d] : [s.line + s.out * d, mid]);
+        s.len = len;
+        // наружная: за ней новая наружная стена или квартира кончается — и это не соседняя квартира
+        s.ext = [0.05, 0.15, 0.3, 0.5, 0.8].some((d) => { const q = p(d); return onEnv(q[0], q[1]) || (!pointInPoly(q, A.polyM) && !inOther(q[0], q[1])); });
+        const q = p(0.45), i = cellAt(q[0], q[1]);
+        s.room = !s.ext && pointInPoly(q, A.polyM) && i >= 0 && !A.wall[i];
+      }
+      const named = words.some(([x, y]) => Math.hypot(x - cx, y - cz) < 2.2);
+      const longExt = sides.filter((s) => s.ext).some((s) => s.len >= Math.max(r.w, r.l) - 0.05);
+      const isBalc = (named && sides.some((s) => s.ext)) || (Math.min(r.w, r.l) <= 1.45 && longExt);
+      if (window.__bd) A.balcDbg.push("  " + r.label + " named=" + named + " ext=" + sides.filter((s) => s.ext).map((s) => s.k + s.len.toFixed(1)).join("") + " room=" + sides.filter((s) => s.room).map((s) => s.k).join("") + " " + r.w.toFixed(2) + "x" + r.l.toFixed(2));
+      if (!isBalc) continue;
+      // проём на стороне: самый длинный кусок без стены и без линий (на чертеже там дверь)
+      const clearRun = (s, T) => {
+        let best = null, run = null;
+        for (let u = s.a; u <= s.b + 1e-6; u += 0.05) {
+          let clear = true;
+          for (let d = 0; d <= T && clear; d += c / 2) { const pt = s.horiz ? [u, s.line + s.out * d] : [s.line + s.out * d, u]; const i = cellAt(pt[0], pt[1]); if (i >= 0 && (A.wall[i] || A.lines[i])) clear = false; }
+          if (clear) { if (!run) run = [u, u]; run[1] = u; if (!best || run[1] - run[0] > best[1] - best[0]) best = [...run]; } else run = null;
+        }
+        return best;
+      };
+      // стена с дверью — на той стороне, где на чертеже проём; при равенстве — на длинной
+      const cand = sides.filter((s) => s.room).map((s) => { const br = clearRun(s, 0.15); return { s, run: br ? br[1] - br[0] : 0 }; });
+      const pick = cand.filter((q) => q.run >= 0.5).sort((p, q) => q.s.len - p.s.len)[0] || cand.sort((p, q) => q.s.len - p.s.len)[0];
+      const inner = pick && pick.s;
+      if (!inner) continue;
+      // толщина стены между комнатой и балконом: сплошная стена от края в сторону комнаты
+      const ts = [];
+      for (let u = inner.a + 0.1; u < inner.b - 0.1; u += 0.1) {
+        let t = 0; for (let d = 0; d <= 0.45; d += c / 2) { const pt = inner.horiz ? [u, inner.line + inner.out * d] : [inner.line + inner.out * d, u]; const i = cellAt(pt[0], pt[1]); if (i >= 0 && A.wall[i]) t = d + c / 2; else if (t) break; }
+        if (t) ts.push(t);
+      }
+      ts.sort((p, q) => p - q);
+      const T = Math.max(0.12, Math.min(0.35, ts.length >= 3 ? ts[ts.length >> 1] : 0.12));
+      // где дверь: самый длинный кусок без стены и без линий остекления
+      const best = clearRun(inner, T);
+      const dw = 0.8;
+      let dc = best && best[1] - best[0] >= 0.5 ? (best[0] + best[1]) / 2 : (inner.a + inner.b) / 2;
+      dc = Math.max(inner.a + dw / 2 + 0.1, Math.min(inner.b - dw / 2 - 0.1, dc));
+      // клетки перегородки: стена непроходима, в проёме двери — проход
+      for (let u = inner.a - 0.02; u <= inner.b + 0.02; u += c / 2) for (let d = -0.02; d <= T + 0.02; d += c / 2) {
+        const pt = inner.horiz ? [u, inner.line + inner.out * d] : [inner.line + inner.out * d, u];
+        const i = cellAt(pt[0], pt[1]); if (i < 0) continue;
+        A.wall[i] = 0; A.opening[i] = 0;
+        A.env[i] = Math.abs(u - dc) < dw / 2 ? 0 : 1;
+      }
+      // пожарные люки: небольшие «стенки» внутри балкона — это люки в полу, а не стены
+      const hatches = [], seen = new Set();
+      for (let z = r.z0 + c; z < r.z1 - c; z += c) for (let x = r.x0 + c; x < r.x1 - c; x += c) {
+        const i0 = cellAt(x, z); if (i0 < 0 || !A.wall[i0] || seen.has(i0)) continue;
+        const st = [i0], cells = []; seen.add(i0);
+        while (st.length) { const j = st.pop(); cells.push(j); for (const nb of [j - 1, j + 1, j - W, j + W]) if (nb >= 0 && nb < W * H && A.wall[nb] && !seen.has(nb)) { seen.add(nb); st.push(nb); } }
+        let x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+        cells.forEach((j) => { const xx = (j % W) * c, zz = ((j / W) | 0) * c; x0 = Math.min(x0, xx); x1 = Math.max(x1, xx + c); z0 = Math.min(z0, zz); z1 = Math.max(z1, zz + c); });
+        if (x1 - x0 > 1.3 || z1 - z0 > 1.3) continue; // это настоящая стена
+        cells.forEach((j) => { A.wall[j] = 0; });
+        if (x1 - x0 > 0.3 && z1 - z0 > 0.3) hatches.push([x0, z0, x1, z1]);
+      }
+      A.balconies.push({ r, inner, T, dc, dw, hatches });
+    }
+  }
+  function buildBalconies(scene, A, height, wallMat) {
+    const frameMat = new THREE.MeshLambertMaterial({ color: 0xfbfbf9 });
+    const glassMat = new THREE.MeshLambertMaterial({ color: 0xcfe8ff, transparent: true, opacity: 0.18, depthWrite: false });
+    const DH = 2.1;
+    for (const b of A.balconies || []) {
+      const s = b.inner, d0 = b.dc - b.dw / 2, d1 = b.dc + b.dw / 2;
+      const box = (u0, u1, t0, t1, y0, y1) => { const v0 = s.line + s.out * t0, v1 = s.line + s.out * t1; return s.horiz ? [u0, Math.min(v0, v1), u1, Math.max(v0, v1), y0, y1] : [Math.min(v0, v1), u0, Math.max(v0, v1), u1, y0, y1]; };
+      const walls = [];
+      if (d0 - s.a > 0.02) walls.push(box(s.a, d0, 0, b.T, 0, height));
+      if (s.b - d1 > 0.02) walls.push(box(d1, s.b, 0, b.T, 0, height));
+      walls.push(box(d0, d1, 0, b.T, DH, height));
+      scene.add(new THREE.Mesh(boxesGeometry(walls), wallMat));
+      // коробка балконной двери ПВХ
+      const tc = b.T / 2, F = 0.06;
+      scene.add(new THREE.Mesh(boxesGeometry([box(d0, d0 + F, tc - 0.04, tc + 0.04, 0, DH), box(d1 - F, d1, tc - 0.04, tc + 0.04, 0, DH), box(d0, d1, tc - 0.04, tc + 0.04, DH - F, DH)]), frameMat));
+      // створка приоткрыта в комнату (петли у края проёма)
+      const leaf = new THREE.Group(), lw = b.dw - 2 * F, lh = DH - F - 0.02;
+      const parts = [[lw, 0.07, 0, lh - 0.035], [lw, 0.07, 0, 0.035], [0.07, lh, -lw / 2 + 0.035, lh / 2], [0.07, lh, lw / 2 - 0.035, lh / 2], [lw, 0.05, 0, 0.9]];
+      for (const [w, h, x, y] of parts) { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.06), frameMat); m.position.set(x + lw / 2, y, 0); leaf.add(m); }
+      const gl = new THREE.Mesh(new THREE.PlaneGeometry(lw - 0.1, lh - 0.12), glassMat); gl.position.set(lw / 2, lh / 2, 0); leaf.add(gl);
+      const hinge = s.horiz ? [d0 + F, s.line + s.out * (b.T + 0.03)] : [s.line + s.out * (b.T + 0.03), d0 + F];
+      leaf.position.set(hinge[0], 0.01, hinge[1]);
+      // направление вдоль стены → поворот створки на 70° в сторону комнаты
+      const base = s.horiz ? 0 : -Math.PI / 2, swing = 70 * Math.PI / 180 * (s.horiz ? -s.out : s.out);
+      leaf.rotation.y = base + swing;
+      scene.add(leaf);
+      // люки в полу балкона
+      for (const [x0, z0, x1, z1] of b.hatches) {
+        const hm = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0, 0.02, z1 - z0), new THREE.MeshLambertMaterial({ color: 0x6d7076 }));
+        hm.position.set((x0 + x1) / 2, 0.01, (z0 + z1) / 2); scene.add(hm);
+        const rim = new THREE.Mesh(new THREE.BoxGeometry(x1 - x0 + 0.04, 0.012, z1 - z0 + 0.04), new THREE.MeshLambertMaterial({ color: 0xc9332b }));
+        rim.position.set((x0 + x1) / 2, 0.006, (z0 + z1) / 2); scene.add(rim);
       }
     }
   }
@@ -291,10 +460,10 @@
 
   /* ---------- Комнаты от подписей площади на плане ---------- */
   // от подписи «22,77 м²» идём лучами влево-вправо и вверх-вниз до стен; берём самый частый отрезок
-  function seededRooms(A, seeds) {
+  function seededRooms(A, seeds, glazing) {
     const { W, H, cell: c } = A, N = W * H;
     const blk = new Uint8Array(N);
-    for (let i = 0; i < N; i++) blk[i] = A.wall[i] || A.opening[i] || A.lines[i] || A.edge[i] < 0.03 ? 1 : 0;
+    for (let i = 0; i < N; i++) blk[i] = A.wall[i] || A.opening[i] || A.lines[i] || (glazing && A.glz[i]) || (A.env && A.env[i]) || A.edge[i] < 0.03 ? 1 : 0;
     const B = (x, y) => x < 0 || y < 0 || x >= W || y >= H || blk[y * W + x] === 1;
     const runX = (x, y) => { if (B(x, y)) return null; let a = x, b = x; while (!B(a - 1, y)) a--; while (!B(b + 1, y)) b++; return [a, b]; };
     const runY = (x, y) => { if (B(x, y)) return null; let a = y, b = y; while (!B(x, a - 1)) a--; while (!B(x, b + 1)) b++; return [a, b]; };
@@ -371,6 +540,7 @@
     const wallGrid = A.wall.map((v, i) => (v && !A.doorCells[i] ? 1 : 0));
     const walls = new THREE.Mesh(boxesGeometry(R(wallGrid).map((r) => [...r, 0, height])), wallMat); scene.add(walls);
     if (A.door) { buildDoor(scene, A.door, height, wallMat); buildPanel(scene, A, A.door); }
+    buildBalconies(scene, A, height, wallMat);
     const dims = new THREE.Group(); scene.add(dims);
     for (const r of A.rooms || []) addDims(dims, r, height);
     // окна высотой 1,80 м: подоконник 0,80 м, над окном перемычка
@@ -421,6 +591,7 @@
       if (sp.type !== 'win' || sp.s1 - sp.s0 < 0.6) continue;
       [0, 1].forEach((k) => {
         const s = sp.s0 + 0.22 + k * 0.09, x = sp.a[0] + sp.u[0] * s + sp.m[0] * (sp.t + 0.07), z = sp.a[1] + sp.u[1] * s + sp.m[1] * (sp.t + 0.07);
+        if ((A.balconies || []).some(({ r }) => x > r.x0 - 0.4 && x < r.x1 + 0.4 && z > r.z0 - 0.4 && z < r.z1 + 0.4)) return; // на балконе отопления нет
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 10), pipeMat); p.position.set(x, 0.16, z); scene.add(p);
         const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.035, 10), k ? capB : capR); cap.position.set(x, 0.335, z); scene.add(cap);
       });
@@ -447,29 +618,35 @@
   }
 
   /* ---------- Вид из окон: снимки карты с высоты квартиры на кольце вокруг ---------- */
-  function addPanorama(B, A, v) {
-    const R = 90, ctr = A.polyM.reduce((s, q) => [s[0] + q[0] / A.polyM.length, s[1] + q[1] / A.polyM.length], [0, 0]);
-    B.ground.position.y = -Math.max(3, v.eyeH - EYE); // земля — на настоящей высоте этажа
-    B.ground.material.depthWrite = false; B.ground.renderOrder = -2; B.ground.material.color.set(0xe6e1d8); // цвет земли как на карте
-    const loader = new THREE.TextureLoader();
-    v.shots.forEach((s, i) => {
-      const hf = s.hfov * Math.PI / 180, h = 2 * R * Math.tan(s.vfov * Math.PI / 360);
-      const th = Math.PI - s.yaw * Math.PI / 180;
-      const tex = loader.load(s.url, (tx) => {
-        if (i) return; // небо сцены — того же цвета, что верх снимка, чтобы не было шва
-        const cv = document.createElement('canvas'); cv.width = 8; cv.height = 1; const g = cv.getContext('2d');
-        g.drawImage(tx.image, 0, 0, tx.image.width, 4, 0, 0, 8, 1);
-        const d = g.getImageData(0, 0, 8, 1).data; let r = 0, gg = 0, b = 0; for (let k = 0; k < 32; k += 4) { r += d[k]; gg += d[k + 1]; b += d[k + 2]; }
-        B.sky = new THREE.Color(r / 8 / 255, gg / 8 / 255, b / 8 / 255);
-        if (B.pano.visible) B.scene.background = B.sky;
-      });
-      tex.repeat.x = -1; tex.offset.x = 1; // слева направо = поворот направо
-      const m = new THREE.Mesh(new THREE.CylinderGeometry(R, R, h, 24, 1, true, th - hf / 2, hf),
-        new THREE.MeshBasicMaterial({ map: tex, side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false }));
-      m.position.set(ctr[0], EYE - R * Math.tan(s.down * Math.PI / 180), ctr[1]);
-      m.renderOrder = -1 + i * 0.001;
-      B.pano.add(m);
-    });
+  // Снимок карты — это перспектива из точки у окна. Ставим его плоским экраном на расстоянии R
+  // в том же направлении и с тем же наклоном: тогда из квартиры дома стоят ровно, без завала.
+  function panoSetup(B, A, v) {
+    if (B.panoReady) return;
+    B.panoReady = true;
+    B.panoCtr = A.polyM.reduce((s, q) => [s[0] + q[0] / A.polyM.length, s[1] + q[1] / A.polyM.length], [0, 0]);
+    B.ground.position.y = -1e4; // землю и небо теперь рисует купол панорамы
+    // небесный купол: голубой зенит, светлый горизонт, земля снизу — едет вместе с глазами
+    const cv = document.createElement('canvas'); cv.width = 4; cv.height = 256; const g = cv.getContext('2d');
+    const gr = g.createLinearGradient(0, 0, 0, 256);
+    gr.addColorStop(0, '#6fa3d8'); gr.addColorStop(0.42, '#bcd6ee'); gr.addColorStop(0.5, '#e9eef2'); gr.addColorStop(0.53, '#e6e1d8'); gr.addColorStop(1, '#d9d4cb');
+    g.fillStyle = gr; g.fillRect(0, 0, 4, 256);
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(80, 24, 16), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(cv), side: THREE.BackSide, fog: false, depthWrite: false, depthTest: false }));
+    dome.renderOrder = -5; B.pano.add(dome);
+  }
+  function addShot(B, A, v, s) {
+    panoSetup(B, A, v);
+    const R = 90, w = 2 * R * Math.tan(s.hfov * Math.PI / 360), h = 2 * R * Math.tan(s.vfov * Math.PI / 360);
+    const tex = new THREE.TextureLoader().load(s.url);
+    const holder = new THREE.Object3D();
+    holder.rotation.order = 'YXZ';
+    holder.rotation.y = -s.yaw * Math.PI / 180;   // поворот по горизонту
+    holder.rotation.x = s.elev * Math.PI / 180;   // наклон вниз
+    holder.position.set(0, 0, 0); // панорама «бесконечно далеко» — едет вместе с глазами, как небо
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ map: tex, fog: false, depthWrite: false, depthTest: false, side: THREE.DoubleSide }));
+    m.position.z = -R;
+    // горизонт поверх нижних рядов; центральный кадр стороны поверх боковых
+    m.renderOrder = -2 + (3 - s.row) * 0.01 + (s.center ? 0.005 : 0);
+    holder.add(m); B.pano.add(holder);
   }
 
   /* ---------- Бронированная входная дверь ---------- */
@@ -644,6 +821,7 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     envelope(A, o);
+    balconies(A, o);
     const B = build(A, H), scene = B.scene;
     const cam = new THREE.PerspectiveCamera(70, 1, 0.05, 500);
     Object.assign(T, { renderer, scene, A, H });
@@ -724,7 +902,7 @@
     const setMode = (m) => {
       T.mode = m; stopWalk();
       root.querySelectorAll('[data-m]').forEach((b) => b.classList.toggle('on', b.dataset.m === m));
-      B.ceil.visible = m === 'walk'; B.ground.visible = m === 'walk'; B.pano.visible = m === 'walk'; B.scene.background = m === 'walk' && B.sky ? B.sky : new THREE.Color(0xcfe3f5);
+      B.ceil.visible = m === 'walk'; B.ground.visible = m === 'walk'; B.pano.visible = m === 'walk'; B.scene.background = new THREE.Color(0xcfe3f5);
       joy.hidden = !(m === 'walk' && touch);
       mini.hidden = m !== 'walk';
       help.textContent = m === 'walk'
@@ -748,9 +926,12 @@
     setMode('top');
     if (o.view) {
       const note = document.createElement('div'); note.className = 'tour-note'; note.textContent = '🌇 Загружаю вид из окон…'; root.append(note);
-      o.view.then((v) => {
+      const v = o.view;
+      v.shots.forEach((s) => addShot(B, A, v, s));
+      v.on((s) => { if (T && T.renderer === renderer) addShot(B, A, v, s); });
+      v.done.then(() => {
         if (!T || T.renderer !== renderer) return;
-        if (v && v.shots.length) { addPanorama(B, A, v); note.textContent = '🌇 За окнами — вид с вашего этажа'; setTimeout(() => note.remove(), 3500); }
+        if (v.shots.length) { note.textContent = '🌇 За окнами — вид с вашего этажа'; setTimeout(() => note.remove(), 3500); }
         else note.remove();
       });
     }
@@ -823,12 +1004,13 @@
         cam.position.set(orbit.cx + Math.sin(orbit.yaw) * Math.cos(orbit.pitch) * orbit.r, Math.sin(orbit.pitch) * orbit.r, orbit.cz + Math.cos(orbit.yaw) * Math.cos(orbit.pitch) * orbit.r);
         cam.lookAt(orbit.cx, 0, orbit.cz);
       }
+      if (B.pano.visible) B.pano.position.copy(cam.position);
       renderer.render(scene, cam);
       if (T.mode === 'walk') drawMini();
       T.raf = requestAnimationFrame(loop);
     };
     T.raf = requestAnimationFrame(loop);
-    T.debug = { A, walk, orbit, setMode };
+    T.debug = { A, walk, orbit, setMode, cam, B };
   }
 
   window.YurtaTour = { open, close, _analyse: analyse, _dbg: () => T && T.debug && Object.assign(T.debug, { target: T.target, path: T.path, goal: T.goal }) };

@@ -692,7 +692,7 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
-    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, area: a.area, height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) });
+    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, balc: b.plan.balc, area: a.area, height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) });
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);
@@ -976,38 +976,54 @@
     });
     map.triggerRepaint();
   });
+  // Кадры приходят по мере съёмки: сначала горизонт по всем сторонам, затем ряды вниз.
+  // Возвращает { eyeH, shots, on(fn), done }: тур показывает кадры сразу, не дожидаясь конца.
   function capturePanorama(p, b, f, a) {
     const key = `${p.id}/${b.id}/${f}/${a.n}`;
     if (panoCache[key]) return panoCache[key];
+    // куда на карте смотрит «верх» плана — чтобы повернуть снимки в системе координат тура
+    const [u0, u1] = planToLocal(p, b, [[0, 0], [0, -100]]);
+    const up = (azim(u1[0] - u0[0], u1[1] - u0[1]) - (p.rotation || 0) + 360) % 360;
+    const pano = { eyeH: floorBase(p, f) + 1.6, shots: [], subs: new Set(), on(fn) { this.subs.add(fn); } };
     const run = async () => {
       const sides = windowSides(p, b, a, f).slice(0, 3);
-      if (!sides.length) return null;
+      if (!sides.length) return;
       const save = { center: map.getCenter(), zoom: map.getZoom(), bearing: map.getBearing(), pitch: map.getPitch() };
-      const cv = map.getCanvas(), vfov = map.transform.fov || 36.87, PITCH = 85;
+      const cv = map.getCanvas(), vfov = map.transform.fov || 36.87;
       const hfov = 2 * Math.atan(Math.tan(vfov / 2 / DEG) * cv.clientWidth / cv.clientHeight) * DEG;
       map.setMaxPitch(85);
-      if (engine) engine.focusBlock(null, b, []); // соседние блоки — не прозрачные, как в жизни
+      // на снимках — город как есть: без прозрачности блоков, подсветки подбора и мигающей квартиры
+      if (engine) {
+        engine.focusBlock(null, b, []);
+        PROJECTS.forEach((q) => engine.setMatches(q, null));
+        engine.highlightApt(null, b, f, null);
+        selectFloor3D(null, null, null);
+      }
       try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95); map.setPaintProperty('building-3d', 'fill-extrusion-color', '#d6d0c6'); } catch (e) {}
-      const eyeH = floorBase(p, f) + 1.6, shots = [];
+      // ряды: pitch карты 85 — почти горизонт; 55 и 25 — вниз; 0 — прямо под окно
+      const rows = [[85, [-1, 0, 1]], [55, [-1, 0, 1]], [25, [-0.5, 0.5]], [0, [0]]];
       try {
-        for (const s of sides) for (const k of [-1, 0, 1]) {
+        for (const [pitch, ks] of rows) for (const s of sides) for (const k of ks) {
           const az = (s.az + k * hfov * 0.8 + 360) % 360;
-          placeCamera(s.eye, eyeH, az, PITCH, false);
+          placeCamera(s.eye, pano.eyeH, az, pitch, false);
           await waitIdle();
-          shots.push({ url: await grabFrame(), az, hfov, vfov, down: 90 - PITCH });
+          const shot = { url: await grabFrame(), yaw: ((az - up + 540) % 360) - 180, elev: pitch - 90, hfov, vfov, row: rows.findIndex((r) => r[0] === pitch), center: k === 0 };
+          pano.shots.push(shot); pano.subs.forEach((fn) => fn(shot));
         }
       } finally {
         try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', origBuildingPaint.op); map.setPaintProperty('building-3d', 'fill-extrusion-color', origBuildingPaint.col); } catch (e) {}
-        if (engine && state.block) engine.focusBlock(state.project, state.block, focusTargets(state.project, state.block, state.floor, state.apt));
+        if (engine) {
+          if (state.block) engine.focusBlock(state.project, state.block, focusTargets(state.project, state.block, state.floor, state.apt));
+          engine.highlightApt(state.apt ? state.project : null, state.block, state.floor, state.apt ? aptLocalPoly(state.project, state.block, state.apt) : null);
+          selectFloor3D(state.project, state.block, state.floor);
+          updateMatches();
+        }
         map.jumpTo(save);
         if (!viewMode) map.setMaxPitch(75);
       }
-      // куда на карте смотрит «верх» плана — чтобы повернуть снимки в системе координат тура
-      const [u0, u1] = planToLocal(p, b, [[0, 0], [0, -100]]);
-      const up = (azim(u1[0] - u0[0], u1[1] - u0[1]) - (p.rotation || 0) + 360) % 360;
-      return { eyeH, shots: shots.map((s) => ({ ...s, yaw: ((s.az - up + 540) % 360) - 180 })) };
     };
-    return (panoCache[key] = run().catch((e) => { console.warn('panorama', e); delete panoCache[key]; return null; }));
+    pano.done = run().catch((e) => { console.warn('panorama', e); delete panoCache[key]; });
+    return (panoCache[key] = pano);
   }
 
   /* ---------- Подсветка на 3D квартир, подходящих по бюджету ---------- */
