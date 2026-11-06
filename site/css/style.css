@@ -449,3 +449,27 @@ button:disabled { cursor: not-allowed; }
 .tour-mini[hidden] { display: none; }
 .tour-mini canvas { position: static; display: block; border-radius: 12px; cursor: crosshair; }
 @media (max-width: 760px) { .tour-mini { left: auto; right: 12px; bottom: 116px; } }
+
+/* Черновая отделка: список в карточке и в туре */
+.handover { margin-top: 12px; border-radius: 18px; background: rgba(255,255,255,.5); box-shadow: inset 0 1px 1px rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.5); padding: 4px 14px; }
+.handover summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 10px 0; }
+.handover summary::-webkit-details-marker { display: none; }
+.handover summary span { width: 34px; height: 34px; border-radius: 11px; background: rgba(212,87,42,.12); display: grid; place-items: center; flex: none; }
+.handover summary b { font-size: 14px; flex: 1; }
+.handover summary small { color: var(--accent); font-weight: 700; font-size: 12px; }
+.handover summary small::after { content: ' ▾'; }
+.handover[open] summary small::after { content: ' ▴'; }
+.handover ul { margin: 0 0 8px; padding: 0 0 0 4px; list-style: none; display: grid; gap: 6px; }
+.handover li { font-size: 13px; color: var(--ink-2); padding-left: 22px; position: relative; line-height: 1.4; }
+.handover li::before { content: '✓'; position: absolute; left: 0; color: var(--free); font-weight: 800; }
+.handover p { margin: 4px 0 10px; }
+.tour-hand { border: 0; background: rgba(255,255,255,.12); color: #fff; padding: 9px 12px; border-radius: 12px; font-weight: 700; font-size: 13px; flex: none; white-space: nowrap; }
+.tour-hand.on { background: rgba(255,255,255,.88); color: var(--ink); }
+.tour-hand[hidden] { display: none; }
+.tour-handbox { position: absolute; top: 84px; right: 12px; width: min(380px, calc(100vw - 24px)); max-height: calc(100vh - 120px); overflow: auto; background: rgba(24,26,32,.72); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); color: #fff; border-radius: 20px; padding: 14px 16px; box-shadow: inset 0 1px 1px rgba(255,255,255,.25), 0 16px 40px rgba(0,0,0,.3); font-size: 13px; }
+.tour-handbox b { display: block; font-size: 14px; margin-bottom: 8px; }
+.tour-handbox ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 5px; }
+.tour-handbox li { padding-left: 20px; position: relative; line-height: 1.35; opacity: .92; }
+.tour-handbox li::before { content: '✓'; position: absolute; left: 0; color: #5ee08f; font-weight: 800; }
+.tour-handbox p { margin: 10px 0 0; opacity: .7; font-size: 12px; }
+@media (max-width: 760px) { .tour-hand { order: 5; } .tour-handbox { top: 128px; } }

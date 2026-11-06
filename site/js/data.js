@@ -176,6 +176,26 @@ const GOLD_SLANT = [[0, 79.6], [143, 42.5]]; // северная граница 
 const ORDO_PLOT = [[-13, -8], [160, -4], [192, 131], [-13, 131]];
 const ORDO_EAST = [[190.6, 125], [175.2, 60]]; // восточный край вдоль дороги (парковка снаружи)
 
+// Состояние квартиры при сдаче — по договору СК «КУТ», п. 2.1.1 (перечень исчерпывающий)
+const HANDOVER_KUT = {
+  title: 'Черновая отделка',
+  included: [
+    'Электропитание 220 В, проводка по проекту до щита квартиры',
+    'Внутренние сети до точек разводки (санузел, кухня) — разводка в помещениях не делается',
+    'Центральная канализация с подводкой труб до санузлов и кухни',
+    'Стояки газоснабжения',
+    'Внутренняя система отопления — без радиаторов',
+    'Естественная вытяжная вентиляция в ванной, туалете и на кухне',
+    'Наружные окна — по проекту',
+    'Входная дверь — по проекту',
+    'Оштукатуренные стены (один слой шпаклёвки)',
+    'Стяжка пола',
+    'Кабель для интернета',
+    'Вывод кабеля для домофона',
+  ],
+  notIncluded: 'радиаторы, разводка труб и электрики по комнатам, межкомнатные двери, сантехника и чистовая отделка',
+};
+
 window.YURTA_PROJECTS = [
   {
     id: 'altay-gold',
@@ -192,6 +212,7 @@ window.YURTA_PROJECTS = [
     brandColor: '#173d2c',
     renders: ['img/gold/r1.jpg', 'img/gold/r2.jpg', 'img/gold/r4.jpg', 'img/gold/r3.jpg', 'img/gold/r5.jpg', 'img/gold/r6.jpg', 'img/gold/r7.jpg'],
     completion: 'I квартал 2029',
+    handover: HANDOVER_KUT,
     pricePerM2: 113000,
     installment: { downPayment: 1760000, months: 59 },
     demoStatuses: true, // случайные «продано/бронь» для демонстрации — выключить, когда будут реальные данные
@@ -267,6 +288,7 @@ window.YURTA_PROJECTS = [
     brandColor: '#1d1d1f',
     renders: ['img/ordo/r1.jpg', 'img/ordo/r3.jpg', 'img/ordo/r4.jpg', 'img/ordo/r5.jpg', 'img/ordo/r2.jpg', 'img/ordo/r6.jpg'],
     completion: 'I квартал 2029',
+    handover: HANDOVER_KUT,
     pricePerM2: 92500,
     installment: { downPayment: 1320000, months: 59 },
     demoStatuses: true,
@@ -360,6 +382,7 @@ window.YURTA_PROJECTS = [
     brandColor: '#141414',
     renders: ['img/plus/r1.jpg', 'img/plus/r2.jpg', 'img/plus/r3.jpg', 'img/plus/r4.jpg', 'img/plus/r5.jpg', 'img/plus/r6.jpg', 'img/plus/r7.jpg'],
     completion: 'I квартал 2029',
+    handover: HANDOVER_KUT,
     pricePerM2: 88000,
     installment: { downPayment: 880000, months: 59 },
     demoStatuses: true,
