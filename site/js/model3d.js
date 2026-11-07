@@ -115,6 +115,28 @@
       }
     });
   }
+  // Подъезд во дворе: белый куб, вертикальные ламели по тёмному стеклу, посередине — стеклянная входная дверь
+  function texEntrance() {
+    return canvasTex(1024, 512, (g, W, H) => {
+      const top = H * 0.16, plinth = H * 0.05;
+      const gr = g.createLinearGradient(0, top, 0, H - plinth); gr.addColorStop(0, '#3b4652'); gr.addColorStop(1, '#22292f');
+      g.fillStyle = gr; g.fillRect(0, top, W, H - top - plinth);
+      g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(0, top, W, (H - top) * 0.35);
+      const dx0 = W * 0.4, dx1 = W * 0.6; // дверной проём
+      for (let x = 10; x < W; x += 34) { if (x > dx0 - 20 && x < dx1 + 6) continue; g.fillStyle = '#f6f5f1'; g.fillRect(x, top, 14, H - top - plinth); g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(x + 14, top, 3, H - top - plinth); }
+      // дверь: белая рама, две стеклянные створки, ручки, светлый проём
+      const dy0 = H * 0.36, dy1 = H - plinth;
+      g.fillStyle = '#f6f5f1'; g.fillRect(dx0 - 14, dy0 - 14, dx1 - dx0 + 28, dy1 - dy0 + 14);
+      g.fillStyle = '#c9dbe8'; g.fillRect(dx0, dy0, dx1 - dx0, dy1 - dy0);
+      g.fillStyle = 'rgba(255,240,210,.55)'; g.fillRect(dx0, dy0 + (dy1 - dy0) * 0.35, dx1 - dx0, (dy1 - dy0) * 0.65);
+      g.fillStyle = '#f6f5f1'; g.fillRect((dx0 + dx1) / 2 - 4, dy0, 8, dy1 - dy0);
+      g.fillStyle = '#9aa0a6'; g.fillRect((dx0 + dx1) / 2 - 16, dy0 + (dy1 - dy0) * 0.45, 5, 40); g.fillRect((dx0 + dx1) / 2 + 11, dy0 + (dy1 - dy0) * 0.45, 5, 40);
+      // козырёк над дверью и номер подъезда
+      g.fillStyle = '#2c3036'; g.fillRect(dx0 - 40, dy0 - 34, dx1 - dx0 + 80, 18);
+      g.fillStyle = '#f6f5f1'; g.fillRect(0, 0, W, top); g.fillRect(0, H - plinth, W, plinth);
+      g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(0, top, W, 4);
+    });
+  }
   function texKinder(seed) {
     return canvasTex(1024, 512, (g, W, H) => {
       const r = rng(seed), bw = W / 4, fh = H / 2;
@@ -223,10 +245,12 @@
     const h = (x) => hW + (hE - hW) * (x - x0) / (x1 - x0);
     const slat = lambert({ map: texSlats() }), dark = lambert({ color: 0x2c3036 }), col = lambert({ color: 0x3a3f46 });
     const tag = (m) => { m.userData = { pid: p.id, podium: true, label: r.name || 'Проезд и въезд в подземный паркинг' }; root.add(m); pick.push(m); return m; };
-    const D = y1 - y0, gx0 = r.gate ? r.gate.px0 : x1;
+    const east = r.gate && r.gate.face === 'east';
+    const D = y1 - y0, gx0 = r.gate && !east ? r.gate.px0 : x1;
     // торцы
     tag(new THREE.Mesh(quad([x0, y1, 0], [x0, y0, 0], [x0, y0, hW], [x0, y1, hW], [0, 0, D / 2, 0, D / 2, hW / 3, 0, hW / 3]), slat));
-    tag(new THREE.Mesh(quad([x1, y0, 0], [x1, y1, 0], [x1, y1, hE], [x1, y0, hE], [0, 0, D / 2, 0, D / 2, hE / 3, 0, hE / 3]), slat));
+    if (east) root.add(new THREE.Mesh(quad([x1, y0, 0], [x1, y1, 0], [x1, y1, hE], [x1, y0, hE]), dark)); // проём под ворота
+    else tag(new THREE.Mesh(quad([x1, y0, 0], [x1, y1, 0], [x1, y1, hE], [x1, y0, hE], [0, 0, D / 2, 0, D / 2, hE / 3, 0, hE / 3]), slat));
     // задняя стена у стилобата и тень в глубине проезда
     tag(new THREE.Mesh(quad([x0, y1, 0], [x1, y1, 0], [x1, y1, hE], [x0, y1, hW]), dark));
     root.add(new THREE.Mesh(quad([x0, y0 + 2.4, 0], [gx0, y0 + 2.4, 0], [gx0, y0 + 2.4, h(gx0)], [x0, y0 + 2.4, hW]), lambert({ color: 0x1b1e22 })));
@@ -240,7 +264,13 @@
     const o = 0.9, roofMat = lambert({ color: 0x4a4f56 });
     tag(new THREE.Mesh(quad([x0 - 0.3, y0 - o, hW + 0.1], [x1 + 0.3, y0 - o, hE + 0.1], [x1 + 0.3, y1 + 0.2, hE + 0.1], [x0 - 0.3, y1 + 0.2, hW + 0.1]), roofMat));
     root.add(new THREE.Mesh(quad([x0, y1 - 0.2, hW + 0.1], [x1, y1 - 0.2, hE + 0.1], [x1, y1 - 0.2, hE + 1.0], [x0, y1 - 0.2, hW + 1.0]), dark)); // ограждение у двора
-    if (r.gate) gatePortal(root, r.gate.px0, r.gate.px1, y0, r.gate.h, r.gate.sign, 'south');
+    if (r.gate && east) {
+      // портал строим «на юг» и поворачиваем на 90°: теперь он смотрит на восток, в торец проезда
+      const g = new THREE.Group(), half = D / 2 - 1.0;
+      gatePortal(g, -half, half, 0, Math.min(r.gate.h, hE - 1.4), r.gate.sign, 'south');
+      g.rotation.z = Math.PI / 2; g.position.set(x1, (y0 + y1) / 2, 0); root.add(g);
+      g.traverse((m) => { if (m.isMesh) { m.userData = { pid: p.id, podium: true, label: 'Въезд в подземный паркинг −1/−2' }; pick.push(m); } });
+    } else if (r.gate) gatePortal(root, r.gate.px0, r.gate.px1, y0, r.gate.h, r.gate.sign, 'south');
   }
   // Портал с секционными воротами и светящимся козырьком. face: 'south' — смотрит на −y, 'north' — на +y
   function gatePortal(root, px0, px1, yf, hh, signText, face) {
@@ -544,6 +574,7 @@
     const shopMat = lambert({ map: texShop(seed + 1) });
     const kinderMat = lambert({ map: texKinder(seed + 2) });
     const parkadeMat = lambert({ map: texParkade() });
+    const entranceMat = lambert({ map: texEntrance() });
     const white = lambert({ color: 0xf4f3ef });
     const rs = ROOF_STYLE[p.style] || ROOF_STYLE.plus;
     const roofMats = { roof: lambert({ map: texRoof(rs.roof, rs.seam) }), white: lambert({ color: 0xf4f3ef }), box: lambert({ color: rs.box }), cap: lambert({ color: rs.cap }), vent: lambert({ color: 0x3a3d42 }) };
@@ -554,9 +585,10 @@
 
     // Объёмы стилобата / коммерции / детсада
     for (const v of p.volumes || []) {
-      const mat = v.tex === 'kinder' ? kinderMat : v.tex === 'parkade' ? parkadeMat : shopMat;
-      const w = new THREE.Mesh(wallGeometry(v.pts, v.base, v.top, BAY * 2 * 4 / 2, v.floorH * 2, v.base), mat);
-      const label = v.name || (v.tex === 'kinder' ? 'Детский сад' : v.tex === 'parkade' ? 'Многоуровневый паркинг' : 'Коммерческие помещения');
+      const mat = v.tex === 'kinder' ? kinderMat : v.tex === 'parkade' ? parkadeMat : v.tex === 'entrance' ? entranceMat : shopMat;
+      // у подъезда одна дверь на сторону: текстура ~на всю стену (стороны ~7 м)
+      const w = new THREE.Mesh(v.tex === 'entrance' ? wallGeometry(v.pts, v.base, v.top, 7.2, v.top - v.base, v.base) : wallGeometry(v.pts, v.base, v.top, BAY * 2 * 4 / 2, v.floorH * 2, v.base), mat);
+      const label = v.name || (v.tex === 'kinder' ? 'Детский сад' : v.tex === 'parkade' ? 'Многоуровневый паркинг' : v.tex === 'entrance' ? 'Подъезд' : 'Коммерческие помещения');
       w.userData = { pid: p.id, podium: true, label };
       root.add(w); pick.push(w);
       const roof = flat(v.pts, v.top, lambert({ color: v.roof || 0xbdb8ae })); roof.userData = { pid: p.id, podium: true, label: v.roofName || label };
