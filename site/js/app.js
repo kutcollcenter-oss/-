@@ -692,7 +692,7 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
-    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, balc: b.plan.balc, area: a.area, height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) });
+    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, balc: b.plan.balc, wet: b.plan.wet, area: a.area, height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) });
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);

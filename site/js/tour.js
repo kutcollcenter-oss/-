@@ -406,6 +406,92 @@
       }
     }
   }
+  /* ---------- Кухня и санузел: стояки воды, канализация у пола, газ на кухне ---------- */
+  // Места берём по подписям «Кухня», «Ванная», «С/У» на плане; если подписей нет (Ordo 1–3) —
+  // санузел узнаём по форме: небольшое помещение 2,5–6,5 м² без наружной стены.
+  function wetPoints(A, o) {
+    const c = A.cell, W = A.W, H = A.H;
+    const cellAt = (x, y) => { const cx = Math.floor(x / c), cy = Math.floor(y / c); return cx < 0 || cy < 0 || cx >= W || cy >= H ? -1 : cy * W + cx; };
+    const solid = (x, y) => { const i = cellAt(x, y); return i < 0 || A.wall[i] === 1 || A.env[i] === 1 || A.opening[i] === 1; };
+    const ext = (x, y) => { const i = cellAt(x, y); return i >= 0 && (A.env[i] === 1 || A.opening[i] === 1); };
+    const inside = (x, y) => pointInPoly([x, y], A.polyM);
+    let pts = (o.wet || []).map(([x, y, k]) => [...A.toM([x, y]), k]).filter(([x, y]) => inside(x, y));
+    // санузлы по форме, если в квартире нет подписи санузла
+    if (!pts.some((p) => p[2] === 'b')) {
+      const labs = (o.labels || []).filter(([, , v]) => v >= 2.3 && v <= 6.5).map(([x, y, v]) => [...A.toM([x, y]), v]).filter(([x, y]) => inside(x, y));
+      for (const r of seededRooms(A, labs)) {
+        if (Math.abs(r.w * r.l / r.label - 1) > 0.2 || Math.min(r.w, r.l) < 1.1) continue;
+        if ((A.balconies || []).some((b) => b.r.label === r.label)) continue;
+        let touchesExt = false;
+        for (let x = r.x0; x <= r.x1 && !touchesExt; x += 0.1) for (const z of [r.z0 - 0.15, r.z1 + 0.15]) if (ext(x, z)) touchesExt = true;
+        for (let z = r.z0; z <= r.z1 && !touchesExt; z += 0.1) for (const x of [r.x0 - 0.15, r.x1 + 0.15]) if (ext(x, z)) touchesExt = true;
+        if (!touchesExt) pts.push([(r.x0 + r.x1) / 2, (r.z0 + r.z1) / 2, 'b']);
+      }
+    }
+    // одна подпись на помещение
+    pts = pts.filter((p, i) => !pts.slice(0, i).some((q) => q[2] === p[2] && Math.hypot(q[0] - p[0], q[1] - p[1]) < 1.2));
+    // от подписи — к ближайшей внутренней стене (стояки не ставим на наружную стену и у окна)
+    const out = [];
+    for (const [px, pz, k] of pts) {
+      let from = [px, pz];
+      if (solid(px, pz)) { let f = null; for (let r = 0.05; r < 0.6 && !f; r += 0.05) for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) if (!f && !solid(px + dx * r, pz + dz * r)) f = [px + dx * r, pz + dz * r]; if (!f) continue; from = f; }
+      let best = null;
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        let d = 0; while (d < 5 && !solid(from[0] + dx * d, from[1] + dz * d)) d += c / 2;
+        if (d >= 5) continue;
+        const isExt = ext(from[0] + dx * (d + c), from[1] + dz * (d + c));
+        const score = d + (isExt ? 10 : 0);
+        if (!best || score < best.score) best = { score, d, dx, dz };
+      }
+      if (!best) continue;
+      // вдоль этой стены — в угол, ближайший к подписи
+      const wall = [from[0] + best.dx * (best.d - 0.02), from[1] + best.dz * (best.d - 0.02)], ux = -best.dz, uz = best.dx;
+      const slide = (s) => { let u = 0; while (u < 4) { const x = wall[0] + ux * s * (u + 0.05) - best.dx * 0.15, z = wall[1] + uz * s * (u + 0.05) - best.dz * 0.15; if (solid(x, z) || !solid(wall[0] + ux * s * u + best.dx * 0.06, wall[1] + uz * s * u + best.dz * 0.06)) break; u += 0.05; } return u; };
+      const uP = slide(1), uN = slide(-1), s = uP <= uN ? 1 : -1, u = Math.min(uP, uN);
+      const along = Math.max(0, u - (k === 'k' ? 0.55 : 0.35));
+      out.push({ k, x: wall[0] + ux * s * along, z: wall[1] + uz * s * along, nx: -best.dx, nz: -best.dz, ux: -ux * s, uz: -uz * s });
+    }
+    A.wet = out;
+  }
+  function buildWet(scene, A, H) {
+    const pp = new THREE.MeshLambertMaterial({ color: 0xf2f2ee }), blue = new THREE.MeshLambertMaterial({ color: 0x2a62c8 }), red = new THREE.MeshLambertMaterial({ color: 0xc8352a });
+    const pvc = new THREE.MeshLambertMaterial({ color: 0x9a9fa6 }), cap = new THREE.MeshLambertMaterial({ color: 0x6f747b }), gas = new THREE.MeshLambertMaterial({ color: 0xf2c200 });
+    const brass = new THREE.MeshLambertMaterial({ color: 0xd8b25a }), meter = new THREE.MeshLambertMaterial({ color: 0x3a77c9 });
+    const vert = (x, z, r, y0, y1, mat) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, y1 - y0, 14), mat); m.position.set(x, (y0 + y1) / 2, z); scene.add(m); return m; };
+    const horiz = (x, z, nx, nz, r, len, y, mat) => { const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 14), mat); m.rotation.set(nz ? Math.PI / 2 : 0, 0, nx ? Math.PI / 2 : 0); m.position.set(x + nx * len / 2, y, z + nz * len / 2); scene.add(m); return m; };
+    const box = (x, y, z, w, h, d, mat) => { const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); scene.add(m); };
+    for (const p of A.wet || []) {
+      const at = (a, d) => [p.x + p.ux * a + p.nx * d, p.z + p.uz * a + p.nz * d];
+      // стояки холодной (синяя метка) и горячей (красная) воды: кран, счётчик, вывод с заглушкой — точка разводки
+      [[0, blue], [0.09, red]].forEach(([a, mark]) => {
+        const [x, z] = at(a, 0.06);
+        vert(x, z, 0.016, 0, H, pp);
+        vert(x, z, 0.018, 1.55, 1.6, mark);
+        const [sx, sz] = at(a, 0.06);
+        horiz(sx, sz, p.nx, p.nz, 0.012, 0.16, 0.95, pp);                    // отвод в комнату
+        const [vx, vz] = at(a, 0.12); box(vx, 0.95, vz, 0.04, 0.04, 0.04, brass);   // шаровой кран
+        const [lx, lz] = at(a, 0.12); box(lx, 0.99, lz, 0.012, 0.012, 0.07, mark); // ручка крана
+        const [mx, mz] = at(a, 0.19); box(mx, 0.95, mz, 0.06, 0.07, 0.05, meter);  // счётчик
+        const [cx, cz] = at(a, 0.24); box(cx, 0.95, cz, 0.03, 0.03, 0.03, cap);    // заглушка
+      });
+      if (p.k === 'b') {
+        // канализационный стояк 110 мм с отводом у пола и заглушкой
+        const [x, z] = at(0.32, 0.08);
+        vert(x, z, 0.055, 0, H, pvc);
+        vert(x, z, 0.06, 0.25, 0.4, pvc);
+        horiz(x, z, p.nx, p.nz, 0.055, 0.16, 0.3, pvc);
+        const [cx, cz] = at(0.32, 0.24); box(cx, 0.3, cz, 0.12, 0.12, 0.12, cap);
+      } else {
+        // кухня: выход канализации 50 мм из стены у пола с заглушкой
+        const [x, z] = at(0.3, 0); horiz(x, z, p.nx, p.nz, 0.028, 0.14, 0.22, pvc);
+        const [cx, cz] = at(0.3, 0.14); box(cx, 0.22, cz, 0.065, 0.065, 0.03, cap);
+        // газовый стояк с краном
+        const [gx, gz] = at(-0.35, 0.05); vert(gx, gz, 0.016, 0, H, gas);
+        const [kx, kz] = at(-0.35, 0.11); box(kx, 1.4, kz, 0.045, 0.045, 0.05, gas);
+        const [hx, hz] = at(-0.35, 0.15); box(hx, 1.44, hz, 0.012, 0.012, 0.09, red);
+      }
+    }
+  }
   // коробка участка наружной стены: вдоль стороны s0..s1, поперёк d0..d1 (внутрь), по высоте y0..y1
   function spanBox(sp, s0, s1, d0, d1, y0, y1) {
     const xs = [], zs = [];
@@ -541,6 +627,7 @@
     const walls = new THREE.Mesh(boxesGeometry(R(wallGrid).map((r) => [...r, 0, height])), wallMat); scene.add(walls);
     if (A.door) { buildDoor(scene, A.door, height, wallMat); buildPanel(scene, A, A.door); }
     buildBalconies(scene, A, height, wallMat);
+    buildWet(scene, A, height);
     const dims = new THREE.Group(); scene.add(dims);
     addWallDims(dims, A, height);
     for (const r of A.rooms || []) addDims(dims, r, height);
@@ -604,7 +691,7 @@
     // пол и потолок — по контуру квартиры плюс под всеми стенами: стена на чертеже бывает чуть за контуром,
     // и без этого у пола и потолка оставалась щель
     const cover = new Uint8Array(A.W * A.H);
-    for (let i = 0; i < A.W * A.H; i++) cover[i] = A.edge[i] > -0.02 || ((A.wall[i] || A.opening[i] || A.doorCells[i] || (A.env && A.env[i])) && A.edge[i] > -0.45) ? 1 : 0;
+    for (let i = 0; i < A.W * A.H; i++) cover[i] = A.edge[i] > -0.45 ? 1 : 0; // вся полоса до стены, даже если стена чуть за контуром
     const quads = rects(cover, A.W, A.H).map(([x, y, w, h]) => [x * c, y * c, (x + w) * c, (y + h) * c]);
     const slabGeom = () => {
       const P = [], UV = [], I = [];
@@ -864,6 +951,7 @@
     renderer.setPixelRatio(Math.min(2, devicePixelRatio));
     envelope(A, o);
     balconies(A, o);
+    wetPoints(A, o);
     const B = build(A, H), scene = B.scene;
     const cam = new THREE.PerspectiveCamera(70, 1, 0.05, 500);
     Object.assign(T, { renderer, scene, A, H });
