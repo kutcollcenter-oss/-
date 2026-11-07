@@ -542,6 +542,7 @@
     if (A.door) { buildDoor(scene, A.door, height, wallMat); buildPanel(scene, A, A.door); }
     buildBalconies(scene, A, height, wallMat);
     const dims = new THREE.Group(); scene.add(dims);
+    addWallDims(dims, A, height);
     for (const r of A.rooms || []) addDims(dims, r, height);
     // окна высотой 1,80 м: подоконник 0,80 м, над окном перемычка
     const y0 = 0.8, y1 = Math.min(height - 0.15, y0 + 1.8);
@@ -600,15 +601,27 @@
     if (frames.length) scene.add(new THREE.Mesh(boxesGeometry(frames), new THREE.MeshLambertMaterial({ color: 0xfbfbf9 })));
     if (sills.length) scene.add(new THREE.Mesh(boxesGeometry(sills), new THREE.MeshLambertMaterial({ color: 0xffffff })));
     // пол — сама планировка
-    const shape = new THREE.Shape(A.polyM.map(([x, z]) => new THREE.Vector2(x, -z)));
-    const fg = new THREE.ShapeGeometry(shape), pos = fg.attributes.position, uv = [];
-    for (let i = 0; i < pos.count; i++) uv.push(pos.getX(i) / A.wm, 1 + pos.getY(i) / A.hm);
-    fg.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    // пол и потолок — по контуру квартиры плюс под всеми стенами: стена на чертеже бывает чуть за контуром,
+    // и без этого у пола и потолка оставалась щель
+    const cover = new Uint8Array(A.W * A.H);
+    for (let i = 0; i < A.W * A.H; i++) cover[i] = A.edge[i] > -0.02 || ((A.wall[i] || A.opening[i] || A.doorCells[i] || (A.env && A.env[i])) && A.edge[i] > -0.45) ? 1 : 0;
+    const quads = rects(cover, A.W, A.H).map(([x, y, w, h]) => [x * c, y * c, (x + w) * c, (y + h) * c]);
+    const slabGeom = () => {
+      const P = [], UV = [], I = [];
+      for (const [x0, z0, x1, z1] of quads) {
+        const k = P.length / 3;
+        for (const [x, z] of [[x0, z0], [x1, z0], [x1, z1], [x0, z1]]) { P.push(x, -z, 0); UV.push(x / A.wm, 1 - z / A.hm); }
+        I.push(k, k + 2, k + 1, k, k + 3, k + 2);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(P, 3)); g.setAttribute('uv', new THREE.Float32BufferAttribute(UV, 2)); g.setIndex(I); g.computeVertexNormals(); return g;
+    };
+    const fg = slabGeom();
     const tex = new THREE.CanvasTexture(A.cv); tex.anisotropy = 8;
     const floor = new THREE.Mesh(fg, new THREE.MeshLambertMaterial({ map: tex, color: 0xb4b0a8, side: THREE.DoubleSide })); // стяжка — серее
     floor.rotation.x = -Math.PI / 2; scene.add(floor);
-    const ctex = roughTexture('#cfccc6', 7000, 60); ctex.repeat.set(0.5, 0.5);
-    const ceil = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshLambertMaterial({ color: 0xffffff, map: ctex, side: THREE.DoubleSide, emissive: 0x3a3936 })); // бетонная плита
+    const ctex = roughTexture('#cfccc6', 7000, 60);
+    const cg = slabGeom(); { const uv = cg.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setXY(i, cg.attributes.position.getX(i) / 2, cg.attributes.position.getY(i) / 2); }
+    const ceil = new THREE.Mesh(cg, new THREE.MeshLambertMaterial({ color: 0xffffff, map: ctex, side: THREE.DoubleSide, emissive: 0x3a3936 })); // бетонная плита
     ceil.rotation.x = -Math.PI / 2; ceil.position.y = height; scene.add(ceil);
     // земля далеко внизу — вид в окно
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x9cbf7d }));
@@ -741,15 +754,44 @@
     g.fillStyle = '#14161a'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, L / 2, M + 2);
     const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; return t;
   }
+  // длина каждой стены: ищем на сетке ровные участки «стена — пол» длиннее 0,7 м и подписываем их посередине
+  function addWallDims(group, A, H) {
+    const { W, H: GH, cell: c } = A;
+    const blocked = (x, y) => { if (x < 0 || y < 0 || x >= W || y >= GH) return true; const i = y * W + x; return !!(A.wall[i] || A.opening[i] || A.doorCells[i] || (A.env && A.env[i]) || A.edge[i] < 0.03); };
+    const free = (x, y) => !blocked(x, y);
+    const y = H / 2 + 0.35, gap = 0.012, runs = [];
+    // горизонтальные стены (вдоль x): стена сверху (z меньше) или снизу от пола
+    for (const dir of [-1, 1]) for (let gy = 0; gy < GH; gy++) {
+      let s0 = -1;
+      for (let gx = 0; gx <= W; gx++) {
+        const on = gx < W && free(gx, gy) && blocked(gx, gy + dir);
+        if (on && s0 < 0) s0 = gx;
+        if (!on && s0 >= 0) { runs.push({ horiz: true, a: s0 * c, b: gx * c, line: (dir < 0 ? gy : gy + 1) * c, dir }); s0 = -1; }
+      }
+    }
+    for (const dir of [-1, 1]) for (let gx = 0; gx < W; gx++) {
+      let s0 = -1;
+      for (let gy = 0; gy <= GH; gy++) {
+        const on = gy < GH && free(gx, gy) && blocked(gx + dir, gy);
+        if (on && s0 < 0) s0 = gy;
+        if (!on && s0 >= 0) { runs.push({ horiz: false, a: s0 * c, b: gy * c, line: (dir < 0 ? gx : gx + 1) * c, dir }); s0 = -1; }
+      }
+    }
+    for (const r of runs) {
+      const L = r.b - r.a; if (L < 0.7) continue;
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(L, DIM_H), new THREE.MeshBasicMaterial({ map: dimTexture(fmtM(L), L, false), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
+      const mid = (r.a + r.b) / 2, off = -r.dir * gap; // чуть в сторону комнаты
+      if (r.horiz) { m.position.set(mid, y, r.line + off); m.rotation.y = r.dir < 0 ? 0 : Math.PI; }
+      else { m.position.set(r.line + off, y, mid); m.rotation.y = r.dir < 0 ? Math.PI / 2 : -Math.PI / 2; }
+      group.add(m);
+    }
+  }
+  // высота потолка — вертикальной линией в углу комнаты
   function addDims(group, r, H) {
     const mk = (text, Lm, vertical) => new THREE.Mesh(vertical ? new THREE.PlaneGeometry(DIM_H, Lm) : new THREE.PlaneGeometry(Lm, DIM_H),
       new THREE.MeshBasicMaterial({ map: dimTexture(text, Lm, vertical), transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }));
     // размер — по центру каждой из четырёх стен, на уровне глаз; высота — вертикально в углу
     const y = H / 2 + 0.35, gap = 0.012, cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2;
-    const n = mk(fmtM(r.w), r.w, false); n.position.set(cx, y, r.z0 + gap); group.add(n);
-    const s = mk(fmtM(r.w), r.w, false); s.position.set(cx, y, r.z1 - gap); s.rotation.y = Math.PI; group.add(s);
-    const w = mk(fmtM(r.l), r.l, false); w.position.set(r.x0 + gap, y, cz); w.rotation.y = Math.PI / 2; group.add(w);
-    const e = mk(fmtM(r.l), r.l, false); e.position.set(r.x1 - gap, y, cz); e.rotation.y = -Math.PI / 2; group.add(e);
     const v = mk('h ' + fmtM(H), H, true); v.position.set(r.x0 + 0.2, H / 2, r.z1 - gap); v.rotation.y = Math.PI; group.add(v);
   }
 
