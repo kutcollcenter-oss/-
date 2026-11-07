@@ -798,28 +798,49 @@
   }
   // щит квартиры у входа, рядом выведены кабели интернета и домофона
   function buildPanel(scene, A, d) {
-    const c = A.cell, isWall = (x, z) => { const cx = Math.floor(x / c), cz = Math.floor(z / c); return cx >= 0 && cz >= 0 && cx < A.W && cz < A.H && A.wall[cz * A.W + cx] && !A.doorCells[cz * A.W + cx]; };
-    const inn = d.horiz ? -d.n[1] : -d.n[0]; // поперёк стены — внутрь квартиры
+    const c = A.cell;
+    const cellOf = (x, z) => { const cx = Math.floor(x / c), cz = Math.floor(z / c); return cx >= 0 && cz >= 0 && cx < A.W && cz < A.H ? cz * A.W + cx : -1; };
+    const isWall = (x, z) => { const i = cellOf(x, z); return i >= 0 && A.wall[i] && !A.doorCells[i]; };
+    const freeAt = (x, z) => { const i = cellOf(x, z); return i >= 0 && !A.wall[i] && !(A.env && A.env[i]) && A.edge[i] > 0.05; };
+    const clearLine = (p, q) => { const n = Math.max(1, Math.ceil(Math.hypot(q[0] - p[0], q[1] - p[1]) / (c / 2))); for (let k = 0; k <= n; k++) if (!freeAt(p[0] + (q[0] - p[0]) * k / n, p[1] + (q[1] - p[1]) * k / n)) return false; return true; };
+    // оси двери: U — вдоль стены с дверью, N — внутрь квартиры
+    const inn = d.horiz ? -d.n[1] : -d.n[0];
+    const U = d.horiz ? [1, 0] : [0, 1], N = d.horiz ? [0, inn] : [inn, 0];
     const face = d.horiz ? (inn > 0 ? d.z1 : d.z0) : (inn > 0 ? d.x1 : d.x0);
-    const a0 = d.horiz ? d.x0 : d.z0, a1 = d.horiz ? d.x1 : d.z1, mid = (d.horiz ? (d.z0 + d.z1) : (d.x0 + d.x1)) / 2;
-    let along = null;
-    for (const u of [a1 + 0.3, a0 - 0.3, a1 + 0.55, a0 - 0.55]) if (d.horiz ? isWall(u, mid) : isWall(mid, u)) { along = u; break; }
-    if (along === null) return;
-    const put = (m, u, y, depth) => { const v = face + inn * depth; m.position.set(d.horiz ? u : v, y, d.horiz ? v : u); if (!d.horiz) m.rotation.y = Math.PI / 2; scene.add(m); };
-    const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.09), new THREE.MeshLambertMaterial({ color: 0xd9dbde }));
-    put(box, along, 1.75, 0.045);
-    const lid = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.01), new THREE.MeshLambertMaterial({ color: 0xc4c7cc }));
-    put(lid, along, 1.75, 0.095);
-    const sign = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.005), new THREE.MeshBasicMaterial({ color: 0xf2c200 }));
-    put(sign, along, 1.86, 0.1);
-    { const v = face + inn * 0.12; tag('Щит квартиры', d.horiz ? along : v, 2.0, d.horiz ? v : along, '#6f747b'); }
+    const a0 = d.horiz ? d.x0 : d.z0, a1 = d.horiz ? d.x1 : d.z1, mid = (a0 + a1) / 2, wallMid = (d.horiz ? (d.z0 + d.z1) : (d.x0 + d.x1)) / 2;
+    const P = (u, dpt) => { const v = face + inn * dpt; return d.horiz ? [u, v] : [v, u]; };
+    const doorIn = P(mid, 0.45);
+    // санузел — это где стояки в том же помещении, без стены между ними и щитом
+    const inBath = (q) => (A.wet || []).some((p) => p.k === 'b' && Math.hypot(p.x - q[0], p.z - q[1]) < 2.6 && clearLine(q, [p.x + p.nx * 0.15, p.z + p.nz * 0.15]));
+    const ok = (front) => freeAt(front[0], front[1]) && clearLine(doorIn, front) && !inBath(front);
+    // щит — в прихожей у входа: за ним стена, от двери до него не мешает стена, рядом нет санузла
+    let mount = null;
+    for (const u of [a1 + 0.3, a0 - 0.3, a1 + 0.55, a0 - 0.55, a1 + 0.85, a0 - 0.85, a1 + 1.2, a0 - 1.2, a1 + 1.6, a0 - 1.6]) {
+      const w = d.horiz ? [u, wallMid] : [wallMid, u];
+      if (isWall(w[0], w[1]) && ok(P(u, 0.35))) { const f = P(u, 0); mount = { f, n: N, t: U, s: u > a1 ? 1 : -1 }; break; }
+    }
+    // иначе — на боковую стену прихожей (тамбура) рядом с дверью
+    for (const dpt of [0.6, 0.9, 1.2, 1.6, 2.0]) for (const s of [1, -1]) {
+      if (mount) break;
+      const st = P(mid, dpt); let k = 0;
+      while (k < 2.2 && freeAt(st[0] + U[0] * s * k, st[1] + U[1] * s * k)) k += c / 2;
+      if (k >= 2.2 || k < 0.3) continue;
+      const f = [st[0] + U[0] * s * k, st[1] + U[1] * s * k], n = [-U[0] * s, -U[1] * s];
+      if (ok([f[0] + n[0] * 0.35, f[1] + n[1] * 0.35])) mount = { f, n, t: N, s: 1 };
+    }
+    A.panel = !!mount;
+    if (!mount) return;
+    const { f, n, t: tv } = mount, rotY = Math.atan2(n[0], n[1]);
+    const at = (a, dd) => [f[0] + tv[0] * a + n[0] * dd, f[1] + tv[1] * a + n[1] * dd];
+    const put = (m, a, y, dd) => { const [x, z] = at(a, dd); m.position.set(x, y, z); m.rotation.y = rotY; scene.add(m); };
+    put(new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.42, 0.09), new THREE.MeshLambertMaterial({ color: 0xd9dbde })), 0, 1.75, 0.045);
+    put(new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.01), new THREE.MeshLambertMaterial({ color: 0xc4c7cc })), 0, 1.75, 0.095);
+    put(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.005), new THREE.MeshBasicMaterial({ color: 0xf2c200 })), 0, 1.86, 0.1);
+    { const [x, z] = at(0, 0.12); tag('Щит квартиры', x, 2.0, z, '#6f747b'); }
     // кабели: интернет (чёрный) и домофон (белый) выходят из стены и висят петлёй
-    const off = along > a1 ? 0.24 : -0.24;
-    [[0x202020, 0], [0xf4f4f4, 0.05]].forEach(([col, dx]) => {
-      const cab = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.005, 6, 20), new THREE.MeshLambertMaterial({ color: col }));
-      put(cab, along + off + dx, 2.08, 0.03);
-    });
-    { const v = face + inn * 0.1, u = along + off + 0.025; tag('Интернет · домофон', d.horiz ? u : v, 2.2, d.horiz ? v : u, '#14161a'); }
+    const off = 0.24 * mount.s;
+    [[0x202020, 0], [0xf4f4f4, 0.05]].forEach(([col, dx]) => put(new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.005, 6, 20), new THREE.MeshLambertMaterial({ color: col })), off + dx, 2.08, 0.03));
+    { const [x, z] = at(off + 0.025, 0.1); tag('Интернет · домофон', x, 2.2, z, '#14161a'); }
   }
   function buildDoor(scene, d, H, wallMat) {
     const DW = 0.96, DH = 2.05, T = 0.07; // полотно 960 × 2050 мм
