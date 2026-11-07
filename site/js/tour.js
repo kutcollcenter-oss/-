@@ -406,6 +406,29 @@
       }
     }
   }
+  /* ---------- Таблички «что это» над трубами, газом, щитком ---------- */
+  let TAGS = null; // группа табличек текущей сцены
+  function tag(text, x, y, z, color = '#d4572a') {
+    if (!TAGS) return;
+    const S = 3, fs = 30 * S, pad = 14 * S, cv = document.createElement('canvas'), g = cv.getContext('2d');
+    g.font = `700 ${fs}px Manrope, Segoe UI, sans-serif`;
+    const w = Math.ceil(g.measureText(text).width) + pad * 2 + 26 * S, h = fs + pad * 1.4;
+    cv.width = w; cv.height = h + 10 * S;
+    g.font = `700 ${fs}px Manrope, Segoe UI, sans-serif`;
+    g.fillStyle = 'rgba(255,255,255,.95)'; g.beginPath(); if (g.roundRect) g.roundRect(2, 2, w - 4, h - 4, h / 2); else g.rect(2, 2, w - 4, h - 4); g.fill();
+    g.strokeStyle = color; g.lineWidth = 2 * S; g.stroke();
+    g.fillStyle = color; g.beginPath(); g.arc(pad + 7 * S, h / 2, 7 * S, 0, 7); g.fill();
+    g.fillStyle = '#14161a'; g.textBaseline = 'middle'; g.fillText(text, pad + 22 * S, h / 2 + S);
+    // хвостик вниз — указывает на трубу
+    g.fillStyle = color; g.beginPath(); g.moveTo(w / 2 - 8 * S, h - 3); g.lineTo(w / 2 + 8 * S, h - 3); g.lineTo(w / 2, h + 9 * S); g.fill();
+    const tex = new THREE.CanvasTexture(cv); tex.anisotropy = 4;
+    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false }));
+    const H = 0.075; sp.scale.set(H * cv.width / cv.height, H, 1);
+    sp.center.set(0.5, 0); // низ таблички — на точке
+    sp.position.set(x, y, z); sp.renderOrder = 5;
+    TAGS.add(sp);
+  }
+
   /* ---------- Кухня и санузел: стояки воды, канализация у пола, газ на кухне ---------- */
   // Места берём по подписям «Кухня», «Ванная», «С/У» на плане; если подписей нет (Ordo 1–3) —
   // санузел узнаём по форме: небольшое помещение 2,5–6,5 м² без наружной стены.
@@ -463,6 +486,7 @@
     for (const p of A.wet || []) {
       const at = (a, d) => [p.x + p.ux * a + p.nx * d, p.z + p.uz * a + p.nz * d];
       // стояки холодной (синяя метка) и горячей (красная) воды: кран, счётчик, вывод с заглушкой — точка разводки
+      { const [tx, tz] = at(0.045, 0.1); tag(p.k === 'b' ? 'Холодная и горячая вода' : 'Вода: холодная и горячая', tx, 1.12, tz, '#2a62c8'); }
       [[0, blue], [0.09, red]].forEach(([a, mark]) => {
         const [x, z] = at(a, 0.06);
         vert(x, z, 0.016, 0, H, pp);
@@ -481,14 +505,17 @@
         vert(x, z, 0.06, 0.25, 0.4, pvc);
         horiz(x, z, p.nx, p.nz, 0.055, 0.16, 0.3, pvc);
         const [cx, cz] = at(0.32, 0.24); box(cx, 0.3, cz, 0.12, 0.12, 0.12, cap);
+        { const [tx, tz] = at(0.32, 0.2); tag('Канализация 110 мм', tx, 0.5, tz, '#6f747b'); }
       } else {
         // кухня: выход канализации 50 мм из стены у пола с заглушкой
         const [x, z] = at(0.3, 0); horiz(x, z, p.nx, p.nz, 0.028, 0.14, 0.22, pvc);
         const [cx, cz] = at(0.3, 0.14); box(cx, 0.22, cz, 0.065, 0.065, 0.03, cap);
+        { const [tx, tz] = at(0.3, 0.14); tag('Канализация 50 мм', tx, 0.32, tz, '#6f747b'); }
         // газовый стояк с краном
         const [gx, gz] = at(-0.35, 0.05); vert(gx, gz, 0.016, 0, H, gas);
         const [kx, kz] = at(-0.35, 0.11); box(kx, 1.4, kz, 0.045, 0.045, 0.05, gas);
         const [hx, hz] = at(-0.35, 0.15); box(hx, 1.44, hz, 0.012, 0.012, 0.09, red);
+        { const [tx, tz] = at(-0.35, 0.12); tag('Газ', tx, 1.62, tz, '#d9a800'); }
       }
     }
   }
@@ -621,6 +648,7 @@
     scene.add(new THREE.HemisphereLight(0xffffff, 0x9a948a, 0.75));
     scene.add(new THREE.AmbientLight(0xffffff, 0.25));
     const sun = new THREE.DirectionalLight(0xfff3e0, 0.45); sun.position.set(8, 20, 5); scene.add(sun);
+    TAGS = new THREE.Group(); scene.add(TAGS);
     const c = A.cell, wallMat = new THREE.MeshLambertMaterial({ color: 0xffffff, map: roughTexture('#e9e6e0', 5000, 40), side: THREE.DoubleSide }); // штукатурка под шпаклёвку
     const R = (grid) => rects(grid, A.W, A.H).map(([x, y, w, h]) => [x * c, y * c, (x + w) * c, (y + h) * c]);
     const wallGrid = A.wall.map((v, i) => (v && !A.doorCells[i] ? 1 : 0));
@@ -628,7 +656,7 @@
     if (A.door) { buildDoor(scene, A.door, height, wallMat); buildPanel(scene, A, A.door); }
     buildBalconies(scene, A, height, wallMat);
     buildWet(scene, A, height);
-    const dims = new THREE.Group(); scene.add(dims);
+    const dims = new THREE.Group(); scene.add(dims); dims.add(TAGS); const tags = TAGS;
     addWallDims(dims, A, height);
     for (const r of A.rooms || []) addDims(dims, r, height);
     // окна высотой 1,80 м: подоконник 0,80 м, над окном перемычка
@@ -682,6 +710,7 @@
         if ((A.balconies || []).some(({ r }) => x > r.x0 - 0.4 && x < r.x1 + 0.4 && z > r.z0 - 0.4 && z < r.z1 + 0.4)) return; // на балконе отопления нет
         const p = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.32, 10), pipeMat); p.position.set(x, 0.16, z); scene.add(p);
         const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.035, 10), k ? capB : capR); cap.position.set(x, 0.335, z); scene.add(cap);
+        if (k) tag('Отопление · радиатор ставит покупатель', x - sp.u[0] * 0.045, 0.42, z - sp.u[1] * 0.045, '#c8352a');
       });
     }
     if (glassB.length) scene.add(new THREE.Mesh(boxesGeometry(glassB), glass.material));
@@ -714,7 +743,7 @@
     const ground = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: 0x9cbf7d }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(A.wm / 2, -25, A.hm / 2); scene.add(ground);
     const pano = new THREE.Group(); scene.add(pano);
-    return { scene, floor, ceil, walls, tex, ground, dims, pano };
+    return { scene, floor, ceil, walls, tex, ground, dims, pano, tags };
   }
 
   /* ---------- Вид из окон: снимки карты с высоты квартиры на кольце вокруг ---------- */
@@ -783,12 +812,14 @@
     put(lid, along, 1.75, 0.095);
     const sign = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.005), new THREE.MeshBasicMaterial({ color: 0xf2c200 }));
     put(sign, along, 1.86, 0.1);
+    { const v = face + inn * 0.12; tag('Щит квартиры', d.horiz ? along : v, 2.0, d.horiz ? v : along, '#6f747b'); }
     // кабели: интернет (чёрный) и домофон (белый) выходят из стены и висят петлёй
     const off = along > a1 ? 0.24 : -0.24;
     [[0x202020, 0], [0xf4f4f4, 0.05]].forEach(([col, dx]) => {
       const cab = new THREE.Mesh(new THREE.TorusGeometry(0.07, 0.005, 6, 20), new THREE.MeshLambertMaterial({ color: col }));
       put(cab, along + off + dx, 2.08, 0.03);
     });
+    { const v = face + inn * 0.1, u = along + off + 0.025; tag('Интернет · домофон', d.horiz ? u : v, 2.2, d.horiz ? v : u, '#14161a'); }
   }
   function buildDoor(scene, d, H, wallMat) {
     const DW = 0.96, DH = 2.05, T = 0.07; // полотно 960 × 2050 мм
@@ -896,7 +927,7 @@
     root.innerHTML = `<canvas></canvas>
       <div class="tour-top"><div><b>🏠 3D-тур по квартире</b><span>${o.title}</span></div>
         <div class="tour-modes"><button data-m="top" class="on">Сверху</button><button data-m="walk">🚶 Прогулка</button></div>
-        <button class="tour-dims on" title="Показать или скрыть размеры комнат">📏 Размеры</button>
+        <button class="tour-dims on" title="Показать или скрыть размеры и подписи">📏 Подписи</button>
         <button class="tour-hand" title="Что входит в квартиру при сдаче">🧱 Как сдаётся</button>
         <button class="tour-x" aria-label="Закрыть">✕</button></div>
       <div class="tour-help"></div>
@@ -1051,7 +1082,7 @@
       root.append(box); handBtn.classList.add('on');
     };
     const dimBtn = $('.tour-dims', root);
-    dimBtn.hidden = !A.rooms.length;
+    dimBtn.hidden = !B.dims.children.length;
     dimBtn.onclick = () => { B.dims.visible = !B.dims.visible; dimBtn.classList.toggle('on', B.dims.visible); };
     setMode('top');
     if (o.view) {
@@ -1104,6 +1135,7 @@
     const jend = () => { jid = null; T.joy = [0, 0]; knob.style.transform = ''; };
     joy.addEventListener('pointerup', jend); joy.addEventListener('pointercancel', jend);
 
+    const tagRay = new THREE.Raycaster();
     let last = performance.now();
     const loop = (now) => {
       if (!T || T.renderer !== renderer) return;
@@ -1135,6 +1167,16 @@
         cam.lookAt(orbit.cx, 0, orbit.cz);
       }
       if (B.pano.visible) B.pano.position.copy(cam.position);
+      // таблички поверх всего, но если между вами и табличкой стена — прячем
+      if (T.mode === 'walk' && B.dims.visible && (T.tagTick = (T.tagTick || 0) + 1) % 6 === 0) {
+        if (!T.blockers) T.blockers = scene.children.filter((o) => o.isMesh && o !== B.floor && o !== B.ceil && o !== B.ground && (o.geometry.computeBoundingSphere(), o.geometry.boundingSphere.radius > 1));
+        for (const s of B.tags.children) {
+          const to = s.position.clone().setY(s.position.y + 0.04).sub(cam.position), dist = to.length();
+          tagRay.set(cam.position, to.normalize()); tagRay.far = dist - 0.05;
+          s.visible = dist < 7 && !tagRay.intersectObjects(T.blockers, false).length;
+        }
+      }
+      if (T.mode !== 'walk') B.tags.children.forEach((s) => { s.visible = true; });
       renderer.render(scene, cam);
       if (T.mode === 'walk') drawMini();
       T.raf = requestAnimationFrame(loop);
