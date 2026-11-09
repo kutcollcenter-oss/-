@@ -257,6 +257,14 @@ window.YURTA_PROJECTS = [
     ],
     // Тёмный корпус вдоль южного фасада (по ГП): въезд с улицы на западе, кровля поднимается к западу до двора 3 этажа,
     // ворота в подземный паркинг −1/−2 — в самом восточном углу
+    // Прогулка по этажам целиком — листы рабочего проекта АР (М 1:150): стены и колонны из векторов чертежа
+    walk: [
+      { id: 'p2', name: 'Паркинг −2', img: 'img/gold/walk/plan6.jpg', mask: 'img/gold/walk/mask6.png', w: 151.901, h: 87.1, height: 3.6 },
+      { id: 'p1', name: 'Паркинг −1', img: 'img/gold/walk/plan7.jpg', mask: 'img/gold/walk/mask7.png', w: 151.901, h: 87.1, height: 4.2 },
+      { id: 'f1', name: '1 этаж · входы', img: 'img/gold/walk/plan8.jpg', mask: 'img/gold/walk/mask8.png', w: 153.537, h: 89.942, height: 3.9, start: [40, 66.5, 1.57] },
+      { id: 'f2', name: '2 этаж', img: 'img/gold/walk/plan9.jpg', mask: 'img/gold/walk/mask9.png', w: 151.901, h: 87.1, height: 4.5 },
+      { id: 'f3', name: '3 этаж · коммерция', img: 'img/gold/walk/plan10.jpg', mask: 'img/gold/walk/mask10.png', w: 151.87, h: 87.101, height: 3.9, start: [70, 40, 1.57] },
+    ],
     ramps: [{ x0: 74, y0: 0, x1: 143, y1: 6.5, hW: 9.4, hE: 5.2, gate: { face: 'east', h: 3.8, sign: '−1 −2' } }], // ворота — на восточном торце
     // Второй въезд в паркинг — с ул. Шабдан баатыра у блока Б (по ГП: между местами 67 и 68)
     downRamps: [{ x0: 6.5, x1: 13, yIn: 77, yOut: 85.5, depth: 3.2, sign: '−1 −2' }],

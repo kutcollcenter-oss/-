@@ -556,6 +556,8 @@
       </div>
       <p class="muted" style="font-size:13px">${esc(p.about)}</p>
       ${budgetDone() ? '<div class="glow-note"><i></i>Зелёным на доме — квартиры по вашему бюджету</div>' : ''}
+      ${p.walk ? `<div class="walk-box"><div class="section-title" style="margin-top:0"><h3>🚶 Прогулка по комплексу</h3><span class="small">по рабочему проекту</span></div>
+        <div class="walk-grid">${p.walk.map((l) => `<button class="tool" data-walk="${l.id}"><i class="ti">${l.id.startsWith('p') ? '🅿️' : l.id === 'f1' ? '🚪' : '🛍'}</i><span class="tt"><b>${l.name}</b><small>${l.id.startsWith('p') ? 'подземный паркинг' : l.id === 'f1' ? 'подъезды и магазины' : 'коммерческие помещения'}</small></span></button>`).join('')}</div></div>` : ''}
       ${nearbyHtml()}
       ${progressHtml()}
       <div class="section-title"><h3>Выберите блок</h3><span class="small">или нажмите на этаж в 3D</span></div>
@@ -565,6 +567,7 @@
     bindGallery(p);
     bindBlockHover(p);
     bindProgress(p);
+    panelBody.querySelectorAll('[data-walk]').forEach((b) => b.onclick = () => window.YurtaFloorTour.open({ title: `${p.name} · прогулка по этажам`, levels: p.walk, level: b.dataset.walk }));
     bindNearby(p);
   }
   function bindBlockHover(p) {
