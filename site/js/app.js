@@ -622,7 +622,7 @@
         </div></div>
       <p class="muted" style="margin:4px 0 12px">${blockName(p, b)} · свободно ${freeCount(p, b, f)} из ${apts.length}. Нажмите на квартиру на плане.</p>
       <div class="plan-tools">
-        <div class="legend"><span><i style="background:var(--free)"></i>Свободна</span><span><i style="background:var(--booked)"></i>Бронь</span><span><i style="background:var(--sold)"></i>Продана</span></div>
+        <div class="legend"><span><i style="border-color:#27a36a"></i>Свободна</span><span><i style="border-color:#e0a32e;border-style:dashed"></i>Бронь</span><span><i style="border-color:#8d939b;border-style:dotted"></i>Продана</span></div>
         <button class="link-btn" id="zoomPlan">⤢ Крупнее</button>
       </div>
       ${planHtml(p, b, f)}

@@ -138,3 +138,56 @@
 /* Кнопка 3D-тура остаётся тёмной и при наведении — иначе белый текст пропадает */
 .tool.tour-btn, .tool.tour-btn:hover { background: linear-gradient(180deg, rgba(44, 48, 58, .86), rgba(18, 20, 24, .9)) !important; color: #fff; }
 .tool.tour-btn:hover { background: linear-gradient(180deg, rgba(58, 63, 75, .9), rgba(24, 26, 32, .92)) !important; box-shadow: var(--edge-dark), 0 16px 34px rgba(20,22,26,.34) !important; }
+
+/* =====================================================================
+   Liquid Glass 2: по принципам Apple (iOS 26) — материал «преломляет» фон,
+   кромка светится бликом (ярче сверху-слева), формы — капсулы и концентрические
+   скругления, глубина слоями, мягкая пружинистая анимация.
+   ===================================================================== */
+:root {
+  --lg-spring: cubic-bezier(.34, 1.36, .64, 1);
+  --lg-tint: rgba(255, 255, 255, .5);
+  --lg-blur: blur(30px) saturate(200%) brightness(1.04);
+}
+/* светящаяся кромка: тонкий градиентный контур поверх края */
+.topbar::after, .panel::after, .chat-panel::after, .modal-card::after, .tool::after, .plan-full::after,
+.pv-zoom button::after, .pv-top::after, .tour-top::after, .handover::after, .budget::after, .calc::after, .card::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: 3; padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,.95), rgba(255,255,255,.25) 30%, rgba(255,255,255,.08) 55%, rgba(255,255,255,.55) 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
+}
+.tour-top::after, .pv-top::after { background: linear-gradient(135deg, rgba(255,255,255,.5), rgba(255,255,255,.06) 40%, rgba(255,255,255,.25)); }
+.tool, .handover, .budget, .calc, .card, .plan-full, .pv-zoom button, .pv-top { position: relative; }
+.card::after { z-index: 2; }
+
+/* главные поверхности: больше «преломления», ровный светлый тон */
+.topbar, .panel, .chat-panel, .modal-card { -webkit-backdrop-filter: var(--lg-blur); backdrop-filter: var(--lg-blur); background: var(--lg-tint) !important; }
+.panel { border-radius: 34px; box-shadow: 0 24px 60px rgba(20,22,26,.16), 0 2px 8px rgba(20,22,26,.06) !important; }
+.topbar { box-shadow: 0 12px 34px rgba(20,22,26,.14) !important; }
+/* концентрические скругления: внутренние карточки = радиус панели − отступ */
+.panel-body > .budget, .calc, .handover, .nearby, .progress-box, .sunbox, .card, .rcard { border-radius: 24px; }
+.plan-wrap { border-radius: 24px; border: 0; background: #fff; box-shadow: 0 1px 0 rgba(255,255,255,.9) inset, 0 8px 24px rgba(20,22,26,.08); }
+
+/* кнопки-капсулы: подсветка сверху, лёгкий «пузырь», пружина при нажатии */
+.tool, .chip, .bchip, .block-btn, .floor-btn, .cta, .qq, .back, .plan-full, .pv-zoom button, .tour-modes button, .tour-dims, .tour-hand {
+  transition: transform .35s var(--lg-spring), box-shadow .25s, background .25s, filter .2s !important;
+}
+.tool:hover, .block-btn:hover, .floor-btn:hover, .plan-full:hover, .pv-zoom button:hover { transform: translateY(-2px) scale(1.015); }
+.tool:active, .chip:active, .bchip:active, .block-btn:active, .floor-btn:active, .cta:active, .qq:active, .back:active, .plan-full:active, .pv-zoom button:active { transform: scale(.96) !important; }
+.tool { background: linear-gradient(180deg, rgba(255,255,255,.72), rgba(255,255,255,.42)) !important; }
+.tool .ti { background: linear-gradient(180deg, rgba(232,105,58,.18), rgba(212,87,42,.1)); box-shadow: inset 0 1px 1px rgba(255,255,255,.8), inset 0 0 0 1px rgba(212,87,42,.14); }
+.plan-full { background: rgba(255,255,255,.6) !important; -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); border-radius: 14px; }
+.pv-zoom button { border-radius: 16px; background: rgba(255,255,255,.62); }
+
+/* типографика: цены и площади — ровными цифрами, заголовки плотнее */
+.price, .card-price, .monthly .v, .fact b, .offer .big, .rpay b { font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+h1 { letter-spacing: -.03em; }
+
+/* выпадающий контекст: тень мягче, глубина слоями */
+.cta:not(.ghost) { box-shadow: inset 0 1px 1px rgba(255,255,255,.6), inset 0 -3px 6px rgba(120,30,0,.22), 0 12px 28px rgba(212,87,42,.32) !important; }
+
+/* людям, у которых в системе включено «уменьшить прозрачность» — плотный материал */
+@media (prefers-reduced-transparency: reduce) {
+  :root { --lg-tint: rgba(250,249,246,.97); --glass: rgba(250,249,246,.97); }
+}
+@media (prefers-reduced-motion: reduce) { * { transition-duration: .01s !important; animation-duration: .01s !important; } }
