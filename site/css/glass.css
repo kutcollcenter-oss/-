@@ -157,7 +157,8 @@
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude;
 }
 .tour-top::after, .pv-top::after { background: linear-gradient(135deg, rgba(255,255,255,.5), rgba(255,255,255,.06) 40%, rgba(255,255,255,.25)); }
-.tool, .handover, .budget, .calc, .card, .plan-full, .pv-zoom button, .pv-top { position: relative; }
+.tool, .handover, .budget, .calc, .card, .pv-zoom button, .pv-top { position: relative; }
+.plan-wrap .plan-full { position: absolute; top: 10px; right: 10px; z-index: 4; } /* кнопка — всегда в углу плана */
 .card::after { z-index: 2; }
 
 /* главные поверхности: больше «преломления», ровный светлый тон */
