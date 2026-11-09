@@ -473,3 +473,20 @@ button:disabled { cursor: not-allowed; }
 .tour-handbox li::before { content: '✓'; position: absolute; left: 0; color: #5ee08f; font-weight: 800; }
 .tour-handbox p { margin: 10px 0 0; opacity: .7; font-size: 12px; }
 @media (max-width: 760px) { .tour-hand { order: 5; } .tour-handbox { top: 128px; } }
+
+/* ---------- План на весь экран ---------- */
+.plan-wrap { position: relative; }
+.plan-full { position: absolute; top: 8px; right: 8px; z-index: 2; width: 36px; height: 36px; border-radius: 12px; border: 0; display: grid; place-items: center; color: var(--ink); background: rgba(255,255,255,.75); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); box-shadow: inset 0 1px 1px rgba(255,255,255,.95), inset 0 0 0 1px rgba(255,255,255,.6), 0 4px 14px rgba(20,22,26,.18); transition: transform .15s, background .15s; }
+.plan-full:hover { transform: scale(1.08); background: #fff; }
+.pv { position: fixed; inset: 0; z-index: 60; background: #f4f2ee; animation: chatIn .18s ease-out; }
+.pv-stage { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; }
+.pv-stage:active { cursor: grabbing; }
+.pv-plan { position: absolute; left: 0; top: 0; transform-origin: 0 0; background: #fff; box-shadow: 0 20px 60px rgba(20,22,26,.18); }
+.pv-plan img, .pv-plan svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; user-select: none; -webkit-user-drag: none; }
+.pv-plan .apt-poly { stroke-width: 2; }
+.pv-top { position: absolute; top: 12px; left: 12px; right: 12px; display: flex; gap: 10px; align-items: center; background: rgba(24,26,32,.62); -webkit-backdrop-filter: blur(20px) saturate(180%); backdrop-filter: blur(20px) saturate(180%); color: #fff; border-radius: 18px; padding: 10px 12px 10px 16px; box-shadow: inset 0 1px 1px rgba(255,255,255,.25), 0 12px 30px rgba(0,0,0,.2); }
+.pv-top > div { flex: 1; min-width: 0; } .pv-top b { display: block; font-size: 15px; } .pv-top span { display: block; font-size: 12px; opacity: .75; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pv-x { flex: none; border: 0; width: 38px; height: 38px; border-radius: 50%; background: rgba(255,255,255,.9); color: var(--ink); font-size: 15px; transition: transform .2s; } .pv-x:hover { transform: rotate(90deg); }
+.pv-zoom { position: absolute; right: 16px; bottom: 20px; display: grid; gap: 6px; }
+.pv-zoom button { width: 46px; height: 46px; border-radius: 14px; border: 0; font-size: 22px; font-weight: 700; color: var(--ink); background: rgba(255,255,255,.8); -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); box-shadow: inset 0 1px 1px rgba(255,255,255,.95), 0 6px 18px rgba(20,22,26,.18); }
+.pv-zoom button:active { transform: scale(.94); }

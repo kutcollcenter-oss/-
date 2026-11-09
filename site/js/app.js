@@ -595,11 +595,13 @@
     const style = `aspect-ratio:${pl.w}/${pl.h};` + (big ? `width:min(100%, calc(78vh * ${pl.w / pl.h}));margin:0 auto;` : '');
     return `<div class="plan-wrap ${big ? 'big' : ''}" style="${style}">
       <img src="${pl.img}" alt="План этажа, ${blockName(p, b)}">
+      <button class="plan-full" type="button" title="На весь экран" aria-label="Открыть план на весь экран"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
       <svg viewBox="0 0 ${pl.w} ${pl.h}" preserveAspectRatio="none">
         ${pl.apts.map((a) => `<polygon class="apt-poly ${status(p, b, f, a)} ${state.apt === a ? 'on' : ''}" data-n="${a.n}" points="${a.poly.map((q) => q.join(',')).join(' ')}"/>`).join('')}
       </svg></div>`;
   }
   function bindPlan(root, p, b, f, onPick) {
+    root.querySelectorAll('.plan-full').forEach((btn) => btn.onclick = (e) => { e.stopPropagation(); openPlanViewer(p, b, f); });
     root.querySelectorAll('.apt-poly').forEach((poly) => {
       const a = b.plan.apts.find((x) => x.n === +poly.dataset.n);
       const st = status(p, b, f, a);
@@ -631,7 +633,55 @@
           <span class="st ${st}">${ST_LABEL[st]}</span>${st !== 'sold' ? favHtml(favKey(p, b, f, a)) : ''}</div>`; }).join('')}</div>
       <p class="small" style="margin-top:12px">План типового этажа. Площади — по рабочему проекту.</p>`;
     bindPlan(panelBody, p, b, f, (a) => go(`#/${p.id}/${b.id}/${f}/${a.n}`));
-    $('#zoomPlan').onclick = () => openPlanModal(p, b, f);
+    $('#zoomPlan').onclick = () => openPlanViewer(p, b, f);
+  }
+  /* ---------- План на весь экран: приближение колесом / щипком / кнопками, перетаскивание ---------- */
+  function openPlanViewer(p, b, f) {
+    const pl = b.plan;
+    const el = document.createElement('div'); el.className = 'pv';
+    el.innerHTML = `<div class="pv-stage"><div class="pv-plan" style="width:${pl.w}px;height:${pl.h}px">
+        <img src="${pl.hd || pl.img}" alt="" draggable="false">
+        <svg viewBox="0 0 ${pl.w} ${pl.h}" preserveAspectRatio="none">${pl.apts.map((a) => `<polygon class="apt-poly ${status(p, b, f, a)} ${state.apt === a ? 'on' : ''}" data-n="${a.n}" points="${a.poly.map((q) => q.join(',')).join(' ')}"/>`).join('')}</svg>
+      </div></div>
+      <div class="pv-top"><div><b>${esc(p.name)} · ${blockName(p, b)} · ${f} этаж</b><span>Колесо или два пальца — приблизить · тяните — двигать · нажмите на квартиру — открыть</span></div><button class="pv-x" aria-label="Закрыть">✕</button></div>
+      <div class="pv-zoom"><button data-z="in" aria-label="Приблизить">+</button><button data-z="out" aria-label="Отдалить">−</button><button data-z="fit" aria-label="Весь план">⤢</button></div>`;
+    document.body.append(el);
+    const stage = el.querySelector('.pv-stage'), plan = el.querySelector('.pv-plan');
+    let s = 1, x = 0, y = 0, fit = 1;
+    const apply = () => { plan.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
+    const clamp = () => { // не даём увести план за экран
+      const W = stage.clientWidth, H = stage.clientHeight, w = pl.w * s, h = pl.h * s;
+      x = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, x));
+      y = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, y));
+    };
+    const doFit = () => { fit = Math.min(stage.clientWidth / pl.w, stage.clientHeight / pl.h) * 0.96; s = fit; clamp(); apply(); };
+    const zoomAt = (k, cx, cy) => { const ns = Math.max(fit, Math.min(fit * 8, s * k)); x = cx - (cx - x) * ns / s; y = cy - (cy - y) * ns / s; s = ns; clamp(); apply(); };
+    doFit();
+    const rect = () => stage.getBoundingClientRect();
+    stage.addEventListener('wheel', (e) => { e.preventDefault(); const r = rect(); zoomAt(e.deltaY < 0 ? 1.18 : 1 / 1.18, e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+    const pts = new Map(); let moved = 0, pinch = null;
+    stage.addEventListener('pointerdown', (e) => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]); moved = 0; if (pts.size === 2) { const [a, c] = [...pts.values()]; pinch = Math.hypot(a[0] - c[0], a[1] - c[1]); } });
+    stage.addEventListener('pointermove', (e) => {
+      if (!pts.has(e.pointerId)) return;
+      const prev = pts.get(e.pointerId); pts.set(e.pointerId, [e.clientX, e.clientY]);
+      if (pts.size === 2 && pinch) { const [a, c] = [...pts.values()], d = Math.hypot(a[0] - c[0], a[1] - c[1]), r = rect(); zoomAt(d / pinch, (a[0] + c[0]) / 2 - r.left, (a[1] + c[1]) / 2 - r.top); pinch = d; moved = 99; return; }
+      const dx = e.clientX - prev[0], dy = e.clientY - prev[1]; moved += Math.abs(dx) + Math.abs(dy);
+      x += dx; y += dy; clamp(); apply();
+    });
+    const up = (e) => {
+      const was = pts.has(e.pointerId); pts.delete(e.pointerId); if (pts.size < 2) pinch = null;
+      if (!was || moved > 6 || pts.size) return;
+      const poly = document.elementFromPoint(e.clientX, e.clientY); // клик по квартире
+      if (poly && poly.classList && poly.classList.contains('apt-poly') && !poly.classList.contains('sold')) { close(); go(`#/${p.id}/${b.id}/${f}/${poly.dataset.n}`); }
+    };
+    stage.addEventListener('pointerup', up); stage.addEventListener('pointercancel', (e) => { pts.delete(e.pointerId); pinch = null; });
+    stage.addEventListener('dblclick', (e) => { const r = rect(); zoomAt(2, e.clientX - r.left, e.clientY - r.top); });
+    el.querySelectorAll('[data-z]').forEach((btn) => btn.onclick = () => { const W = stage.clientWidth / 2, H = stage.clientHeight / 2; if (btn.dataset.z === 'fit') doFit(); else zoomAt(btn.dataset.z === 'in' ? 1.5 : 1 / 1.5, W, H); });
+    const onKey = (e) => { if (e.key === 'Escape') close(); };
+    const onResize = () => { const k = s / fit; doFit(); zoomAt(k, stage.clientWidth / 2, stage.clientHeight / 2); };
+    function close() { el.remove(); window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); }
+    el.querySelector('.pv-x').onclick = close;
+    window.addEventListener('keydown', onKey); window.addEventListener('resize', onResize);
   }
   function openPlanModal(p, b, f) {
     openModal(`<h2 style="margin-bottom:12px">${blockName(p, b)} · ${f} этаж</h2>${planHtml(p, b, f, true)}`, true);
