@@ -42,6 +42,59 @@
     return g;
   }
 
+  /* ---------- Отделка: сдаются с ремонтом ---------- */
+  const rnd = (s) => () => ((s = (s * 16807) % 2147483647) / 2147483647);
+  function canvasTex(w, h, draw, repeat) {
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; draw(cv.getContext('2d'), w, h);
+    const tx = new THREE.CanvasTexture(cv); tx.anisotropy = 8;
+    if (repeat) { tx.wrapS = tx.wrapT = THREE.RepeatWrapping; }
+    return tx;
+  }
+  // подвесной потолок «Армстронг» 600×600: одна текстура = 1,2 м
+  const texArmstrong = () => canvasTex(256, 256, (g, w) => {
+    g.fillStyle = '#f3f2ee'; g.fillRect(0, 0, w, w);
+    const r = rnd(7); for (let k = 0; k < 2500; k++) { g.fillStyle = r() < 0.5 ? 'rgba(0,0,0,.035)' : 'rgba(255,255,255,.5)'; g.fillRect(r() * w, r() * w, 1, 1); }
+    g.fillStyle = '#d7d6d2'; for (const p of [0, w / 2]) { g.fillRect(p, 0, 3, w); g.fillRect(0, p, w, 3); }
+  }, true);
+  // полосы «осторожно» на колоннах паркинга
+  const texHazard = () => canvasTex(128, 128, (g, w) => {
+    g.fillStyle = '#e8b400'; g.fillRect(0, 0, w, w); g.fillStyle = '#1d1f22';
+    for (let k = -w; k < w * 2; k += 32) { g.beginPath(); g.moveTo(k, 0); g.lineTo(k + 16, 0); g.lineTo(k + 16 - w, w); g.lineTo(k - w, w); g.fill(); }
+  }, true);
+  // пол целиком на один холст: внутри — керамогранит или полимерный пол, разметка машиномест; снаружи — тротуарная плитка / бетон
+  function floorTexture(L, M, cell, outsideAt, under, cars) {
+    const FW = Math.min(4096, Math.round(L.w * 26)), FH = Math.round(FW * L.h / L.w), ppm = FW / L.w;
+    return canvasTex(FW, FH, (g) => {
+      const r = rnd(11);
+      if (under) {
+        // полимерный (эпоксидный) пол паркинга с лёгкими разводами
+        g.fillStyle = '#7f8783'; g.fillRect(0, 0, FW, FH);
+        for (let k = 0; k < FW * FH / 900; k++) { const x = r() * FW, y = r() * FH, rr = 20 + r() * 90, gr = g.createRadialGradient(x, y, 0, x, y, rr); gr.addColorStop(0, r() < 0.5 ? 'rgba(255,255,255,.05)' : 'rgba(0,0,0,.05)'); gr.addColorStop(1, 'rgba(0,0,0,0)'); g.fillStyle = gr; g.fillRect(x - rr, y - rr, rr * 2, rr * 2); }
+        // разметка машиномест 2,5 × 5,3 м по местам из проекта
+        g.fillStyle = 'rgba(245,245,240,.92)';
+        const lw = Math.max(2, 0.1 * ppm);
+        for (const [x, z, horiz] of cars) {
+          const hl = 2.65, hw = 1.25;
+          if (horiz) { for (const s of [-1, 1]) g.fillRect((x - hl) * ppm, (z + s * hw) * ppm - lw / 2, 2 * hl * ppm, lw); }
+          else { for (const s of [-1, 1]) g.fillRect((x + s * hw) * ppm - lw / 2, (z - hl) * ppm, lw, 2 * hl * ppm); }
+        }
+      } else {
+        // керамогранит 600×600, светлый, с лёгкими отличиями плиток и швами
+        const t = 0.6 * ppm;
+        for (let y = 0; y < FH; y += t) for (let x = 0; x < FW; x += t) {
+          const v = 188 + Math.round((r() - 0.5) * 10); g.fillStyle = "rgb(" + v + "," + (v - 4) + "," + (v - 10) + ")"; g.fillRect(x, y, t + 1, t + 1);
+        }
+        g.fillStyle = 'rgba(120,110,95,.28)';
+        for (let y = 0; y < FH; y += t) g.fillRect(0, y, FW, 1);
+        for (let x = 0; x < FW; x += t) g.fillRect(x, 0, 1, FH);
+      }
+      // снаружи здания
+      g.fillStyle = under ? '#3b3e42' : '#8d8881';
+      const step = 4 * cell * ppm;
+      for (let y = 0; y < FH; y += step) for (let x = 0; x < FW; x += step) if (outsideAt(x / ppm, y / ppm)) g.fillRect(x, y, step + 1, step + 1);
+    });
+  }
+
   function close() {
     if (!F) return;
     cancelAnimationFrame(F.raf);
@@ -99,14 +152,45 @@
     const scene = new THREE.Scene();
     const under = L.id.startsWith('p');
     scene.background = new THREE.Color(under ? 0x1d2024 : 0xcfe3f5);
-    F.fog = new THREE.Fog(scene.background, 25, under ? 70 : 140);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x8a857c, under ? 0.65 : 0.75));
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.45); sun.position.set(60, 40, 25); scene.add(sun); // свет сбоку — грани стен различимы
-    const fill = new THREE.DirectionalLight(0xffffff, 0.18); fill.position.set(-30, 30, -50); scene.add(fill);
-    // стены и колонны
-    const list = rects(M.wall, M.W, M.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0, H]);
-    const walls = new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: under ? 0xa9a7a2 : 0xeeeae3, side: THREE.DoubleSide }));
+    F.fog = new THREE.Fog(scene.background, under ? 25 : 35, under ? 70 : 160);
+    scene.add(new THREE.HemisphereLight(0xffffff, under ? 0x6f746f : 0xbdb6aa, under ? 0.7 : 0.55));
+    scene.add(new THREE.AmbientLight(0xffffff, under ? 0.32 : 0.2));
+    const sun = new THREE.DirectionalLight(0xfff6ea, 0.38); sun.position.set(60, 40, 25); scene.add(sun); // свет сбоку — грани стен различимы
+    const fill = new THREE.DirectionalLight(0xffffff, 0.16); fill.position.set(-30, 30, -50); scene.add(fill);
+    // что снаружи здания (для пола и стартовой точки): заливка снаружи по «утолщённым» стенам
+    const so = 4, OW = Math.ceil(M.W / so), OH = Math.ceil(M.H / so), oc = new Uint8Array(OW * OH);
+    for (let y = 0; y < M.H; y++) for (let x = 0; x < M.W; x++) if (M.wall[y * M.W + x]) oc[Math.floor(y / so) * OW + Math.floor(x / so)] = 1;
+    const orr = Math.ceil(1.5 / (cell * so)), oth = new Uint8Array(OW * OH);
+    for (let y = 0; y < OH; y++) for (let x = 0; x < OW; x++) if (oc[y * OW + x]) for (let dy = -orr; dy <= orr; dy++) for (let dx = -orr; dx <= orr; dx++) { const yy = y + dy, xx = x + dx; if (yy >= 0 && yy < OH && xx >= 0 && xx < OW) oth[yy * OW + xx] = 1; }
+    const oout = new Uint8Array(OW * OH), oq = [];
+    for (let x = 0; x < OW; x++) for (const y of [0, OH - 1]) if (!oth[y * OW + x]) { oout[y * OW + x] = 1; oq.push(y * OW + x); }
+    for (let y = 0; y < OH; y++) for (const x of [0, OW - 1]) if (!oth[y * OW + x] && !oout[y * OW + x]) { oout[y * OW + x] = 1; oq.push(y * OW + x); }
+    for (let h = 0; h < oq.length; h++) { const j = oq[h], x = j % OW; for (const n of [x > 0 ? j - 1 : -1, x < OW - 1 ? j + 1 : -1, j - OW, j + OW]) if (n >= 0 && n < OW * OH && !oth[n] && !oout[n]) { oout[n] = 1; oq.push(n); } }
+    const outsideAt = (x, z) => { const cx = Math.floor(x / (cell * so)), cz = Math.floor(z / (cell * so)); return cx < 0 || cz < 0 || cx >= OW || cz >= OH || oout[cz * OW + cx] === 1; };
+    // стены и колонны: окрашенные стены, плинтус; в паркинге — нижняя защитная полоса и жёлто-чёрные колонны
+    const wr = rects(M.wall, M.W, M.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell]);
+    const walls = new THREE.Mesh(boxes(wr.map((q) => [...q, 0, H])), new THREE.MeshLambertMaterial({ color: under ? 0xdedcd6 : 0xe6e1d8, side: THREE.DoubleSide }));
+    const grow = (q, d, y0, y1) => [q[0] - d, q[1] - d, q[2] + d, q[3] + d, y0, y1];
+    if (under) {
+      scene.add(new THREE.Mesh(boxes(wr.map((q) => grow(q, 0.012, 0, 1.0))), new THREE.MeshLambertMaterial({ color: 0x5b6863, side: THREE.DoubleSide })));
+      scene.add(new THREE.Mesh(boxes(wr.map((q) => grow(q, 0.014, 1.0, 1.07))), new THREE.MeshLambertMaterial({ color: 0xe0b400, side: THREE.DoubleSide })));
+      // колонны: отдельные небольшие пятна стены (до 1,2 м) — обклеены полосами «осторожно» до 1,2 м
+      const seen = new Uint8Array(M.W * M.H), hz = texHazard(), cols = [];
+      for (let i = 0; i < M.W * M.H; i++) {
+        if (!M.wall[i] || seen[i]) continue;
+        const st = [i]; seen[i] = 1; let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1, n = 0;
+        while (st.length && n < 2000) { const j = st.pop(); n++; const x = j % M.W, y = (j / M.W) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+          for (const nb of [x > 0 ? j - 1 : -1, x < M.W - 1 ? j + 1 : -1, j - M.W, j + M.W]) if (nb >= 0 && nb < M.W * M.H && M.wall[nb] && !seen[nb]) { seen[nb] = 1; st.push(nb); } }
+        const w = (x1 - x0 + 1) * cell, d = (y1 - y0 + 1) * cell;
+        if (n < 2000 && w >= 0.25 && d >= 0.25 && w <= 1.2 && d <= 1.2) cols.push([x0 * cell, y0 * cell, w, d]);
+      }
+      for (const [x, z, w, d] of cols) {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w + 0.03, 1.2, d + 0.03), new THREE.MeshLambertMaterial({ map: hz }));
+        m.position.set(x + w / 2, 0.6, z + d / 2); scene.add(m);
+      }
+    } else {
+      scene.add(new THREE.Mesh(boxes(wr.map((q) => grow(q, 0.012, 0, 0.09))), new THREE.MeshLambertMaterial({ color: 0x4a4d52, side: THREE.DoubleSide })));
+    }
     // витрины и стеклянные перегородки: видно, но пройти можно — там двери магазинов
     if (glassImg && !under) { // в паркинге витражей нет — белые полоски там это отделка стен
       const G = readMask(glassImg);
@@ -117,24 +201,38 @@
           for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const yy = y + dy, xx = x + dx; if (yy >= 0 && yy < M.H && xx >= 0 && xx < M.W) near[yy * M.W + xx] = 1; }
         for (let k = 0; k < G.wall.length; k++) if (near[k]) G.wall[k] = 0;
       }
-      const gl = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0.05, H - 0.25]);
-      const glass = new THREE.Mesh(boxes(gl), new THREE.MeshLambertMaterial({ color: 0x9fd2ec, transparent: true, opacity: 0.32, depthWrite: false }));
+      const gq = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell]).filter((q) => Math.max(q[2] - q[0], q[3] - q[1]) >= 0.4);
+      const glass = new THREE.Mesh(boxes(gq.map((q) => [...q, 0.08, H - 0.12])), new THREE.MeshLambertMaterial({ color: 0xb9dcef, transparent: true, opacity: 0.26, depthWrite: false, side: THREE.DoubleSide }));
       glass.renderOrder = 2; scene.add(glass);
-      const frame = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, H - 0.3, H - 0.2]);
-      scene.add(new THREE.Mesh(boxes(frame), new THREE.MeshLambertMaterial({ color: 0x3a3f46 })));
+      // алюминиевый профиль: низ, верх и стойки через 1,5 м
+      const prof = [];
+      for (const q of gq) {
+        const horiz = q[2] - q[0] >= q[3] - q[1], len = horiz ? q[2] - q[0] : q[3] - q[1], c = horiz ? (q[1] + q[3]) / 2 : (q[0] + q[2]) / 2;
+        const bar = (a, b, y0, y1) => (horiz ? [a, c - 0.03, b, c + 0.03, y0, y1] : [c - 0.03, a, c + 0.03, b, y0, y1]);
+        const s0 = horiz ? q[0] : q[1];
+        prof.push(bar(s0, s0 + len, 0, 0.08), bar(s0, s0 + len, H - 0.12, H));
+        const n = Math.max(1, Math.round(len / 1.5));
+        for (let k = 0; k <= n; k++) { const u = s0 + len * k / n; prof.push(bar(u - 0.025, u + 0.025, 0, H)); }
+      }
+      scene.add(new THREE.Mesh(boxes(prof), new THREE.MeshLambertMaterial({ color: 0x3a3f46, side: THREE.DoubleSide })));
     }
     scene.add(walls);
-    // пол — чертёж; потолок — бетонная плита
-    const tex = new THREE.Texture(plan); tex.needsUpdate = true; tex.anisotropy = F.renderer.capabilities.getMaxAnisotropy();
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ map: tex, color: under ? 0x9c9a95 : 0xd2ccc2 }));
+    // пол — отделка (чертёж остаётся на мини-карте)
+    const tex = floorTexture(L, M, cell, outsideAt, under, cars);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ map: tex }));
     floor.rotation.x = -Math.PI / 2; floor.position.set(L.w / 2, 0, L.h / 2); scene.add(floor);
-    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ color: under ? 0x6d6d6b : 0xd9d6d0, side: THREE.DoubleSide }));
+    let ceilMat;
+    if (under) ceilMat = new THREE.MeshLambertMaterial({ color: 0x8a8a87, side: THREE.DoubleSide });
+    else { const ct = texArmstrong(); ct.repeat.set(L.w / 1.2, L.h / 1.2); ceilMat = new THREE.MeshLambertMaterial({ map: ct, side: THREE.DoubleSide }); }
+    const ceil = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), ceilMat);
     ceil.rotation.x = -Math.PI / 2; ceil.position.set(L.w / 2, H, L.h / 2); scene.add(ceil);
-    // светильники в паркинге — полосы света на потолке
-    if (under) {
-      const lamp = new THREE.MeshBasicMaterial({ color: 0xf4f7ff }), lamps = [];
-      for (let z = 4; z < L.h; z += 7) for (let x = 4; x < L.w; x += 6) { const i = Math.floor(z / cell) * M.W + Math.floor(x / cell); if (!M.wall[i]) lamps.push([x - 0.6, z - 0.06, x + 0.6, z + 0.06, H - 0.06, H - 0.02]); }
-      scene.add(new THREE.Mesh(boxes(lamps), lamp));
+    // свет: в паркинге — линейные светильники, в коммерции — LED-панели 600×600 в потолке
+    {
+      const lampMat = new THREE.MeshBasicMaterial({ color: 0xf7f9ff }), lamps = [];
+      const ok = (x, z) => { const i = Math.floor(z / cell) * M.W + Math.floor(x / cell); return !M.wall[i] && !outsideAt(x, z); };
+      if (under) { for (let z = 4; z < L.h; z += 7) for (let x = 4; x < L.w; x += 6) if (ok(x, z)) lamps.push([x - 0.6, z - 0.06, x + 0.6, z + 0.06, H - 0.07, H - 0.02]); }
+      else { for (let z = 1.2; z < L.h; z += 2.4) for (let x = 1.2; x < L.w; x += 2.4) if (ok(x + 0.3, z + 0.3)) lamps.push([x, z, x + 0.6, z + 0.6, H - 0.02, H - 0.005]); }
+      scene.add(new THREE.Mesh(boxes(lamps), lampMat));
     }
     // машины на местах, где они нарисованы в проекте: кузов, кабина со стёклами, колёса
     if (cars.length) {
@@ -192,6 +290,8 @@
       for (let r = 0; r < 4 && !bs; r += 0.25) for (let a = 0; a < 6.28 && !bs; a += 0.4) if (F.free(sx + Math.cos(a) * r, sz + Math.sin(a) * r)) bs = [sx + Math.cos(a) * r, sz + Math.sin(a) * r];
       if (bs) Object.assign(F.walk, { x: bs[0], z: bs[1], yaw: sy });
     }
+    // смотрим туда, где больше всего свободного места
+    { let far = -1; for (let k = 0; k < 24; k++) { const an = k / 24 * Math.PI * 2; let d = 0; while (d < 40 && F.free(F.walk.x + Math.sin(an) * d, F.walk.z - Math.cos(an) * d)) d += 0.25; if (d > far) { far = d; F.walk.yaw = an; } } }
     F.orbit = { yaw: 0, pitch: 1.2, r: Math.max(L.w, L.h) * (L.w / L.h > 3 ? 0.55 : 0.85), cx: L.w / 2, cz: L.h / 2 };
     buildMini(plan);
     msg.hidden = true;

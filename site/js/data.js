@@ -264,7 +264,7 @@ window.YURTA_PROJECTS = [
       { id: 'p2', name: 'Паркинг −2', img: 'img/gold/walk/plan6.jpg', mask: 'img/gold/walk/mask6.png', glass: 'img/gold/walk/glass6.png', cars: 'img/gold/walk/cars6.json', w: 151.901, h: 87.1, height: 3.6 },
       { id: 'p1', name: 'Паркинг −1', img: 'img/gold/walk/plan7.jpg', mask: 'img/gold/walk/mask7.png', glass: 'img/gold/walk/glass7.png', cars: 'img/gold/walk/cars7.json', w: 151.901, h: 87.1, height: 4.2 },
       { id: 'f1', name: '1 этаж · входы', img: 'img/gold/walk/plan8.jpg', mask: 'img/gold/walk/mask8.png', glass: 'img/gold/walk/glass8.png', w: 153.537, h: 89.942, height: 3.9, start: [40, 66.5, 1.57] },
-      { id: 'f2', name: '2 этаж', img: 'img/gold/walk/plan9.jpg', mask: 'img/gold/walk/mask9.png', glass: 'img/gold/walk/glass9.png', w: 151.901, h: 87.1, height: 4.5 },
+      { id: 'f2', name: '2 этаж', img: 'img/gold/walk/plan9.jpg', mask: 'img/gold/walk/mask9.png', glass: 'img/gold/walk/glass9.png', w: 151.901, h: 87.1, height: 4.5, start: [40, 66.5, 1.57] },
       { id: 'f3', name: '3 этаж · коммерция', img: 'img/gold/walk/plan10.jpg', mask: 'img/gold/walk/mask10.png', glass: 'img/gold/walk/glass10.png', w: 151.87, h: 87.101, height: 3.9, start: [70, 40, 1.57] },
     ],
     ramps: [{ x0: 74, y0: 0, x1: 143, y1: 6.5, hW: 9.4, hE: 5.2, gate: { face: 'east', h: 3.8, sign: '−1 −2' } }], // ворота — на восточном торце
