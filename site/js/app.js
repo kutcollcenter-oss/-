@@ -687,6 +687,13 @@
     el.querySelector('.pv-x').onclick = close;
     window.addEventListener('keydown', onKey); window.addEventListener('resize', onResize);
   }
+  // листы рабочего проекта для 3D-тура: plan.ar = [{ from, to, src }] → img/ordo/ar/<src>.json
+  const arCache = {};
+  function loadArPlan(plan, f) {
+    const e = (plan.ar || []).find((x) => f >= x.from && f <= x.to);
+    if (!e) return Promise.resolve(null);
+    return (arCache[e.src] = arCache[e.src] || fetch(`img/ordo/ar/${e.src}.json`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  }
   function openPlanModal(p, b, f) {
     openModal(`<h2 style="margin-bottom:12px">${blockName(p, b)} · ${f} этаж</h2>${planHtml(p, b, f, true)}`, true);
     bindPlan($('#modalCard'), p, b, f, (a) => { closeModal(); go(`#/${p.id}/${b.id}/${f}/${a.n}`); });
@@ -746,7 +753,18 @@
     };
     rDown.oninput = upd; rMonths.oninput = upd; upd();
     $('#leadBtn').onclick = () => openLead(p, b, f, a, +rDown.value, +rMonths.value);
-    $('#tourBtn').onclick = () => window.YurtaTour.open({ title: `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, balc: b.plan.balc, wet: b.plan.wet, area: a.area, height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) });
+    $('#tourBtn').onclick = async () => {
+      const title = `${esc(p.name)} · блок ${b.id} · ${f} этаж · кв. ${aptNumber(p, b, f, a)} · ${roomsLabel(a)}, ${area(a.area)}`;
+      const common = { height: p.ceiling || 2.8, handover: p.handover, view: capturePanorama(p, b, f, a) };
+      // точная планировка из рабочего проекта (АР), если есть лист для этого этажа
+      const ar = await loadArPlan(b.plan, f);
+      const k = ar && ar.map ? ar.map[a.n] : null;
+      if (ar && k != null) {
+        const A = ar.apts[k];
+        return window.YurtaTour.open({ ...common, title: title + ` · по АР (${esc(A.name)}кв.)`, img: ar.img, kx: 1, ky: 1, mpp: ar.mpp, planW: ar.w, planH: ar.h, poly: A.poly, others: ar.apts.filter((x) => x !== A).map((x) => x.poly), labels: ar.areas, balc: ar.balc, wet: ar.wet, area: A.area });
+      }
+      window.YurtaTour.open({ ...common, title, img: b.plan.hd || b.plan.img, kx: b.plan.hdK, ky: b.plan.hdK, mpp: b.plan.hdMpp, planW: b.plan.w, planH: b.plan.h, poly: a.poly, others: b.plan.apts.filter((x) => x !== a).map((x) => x.poly), labels: b.plan.areas, balc: b.plan.balc, wet: b.plan.wet, area: a.area });
+    };
     $('#winView').onclick = () => { loadMedia(p.id).then(() => openWindowView(p, b, f, a)); };
     $('#offerBtn').onclick = () => shareOffer(p, b, f, a, +rDown.value, +rMonths.value);
     bindSun(p, b, f, a);
