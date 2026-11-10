@@ -328,11 +328,17 @@ window.YURTA_PROJECTS = [
     floorHeight: 3.0,
     ceiling: 2.8, // высота потолка в квартире, м (для 3D-тура)
     blockBase: 0,
+    walkScale: '1:100',
+    // Прогулка по коммерции — АР Тип 3.2 (М 1:100): 1–2 этажи вдоль ул. Гагарина, блоки А1–А3 и вставки СКБ
+    walk: [
+      { id: 'f1', name: '1 этаж · коммерция', sub: 'магазины и галерея', img: 'img/ordo/walk/plan_f1.jpg', mask: 'img/ordo/walk/mask_f1.png', glass: 'img/ordo/walk/glass_f1.png', w: 199.529, h: 27.566, height: 3.9, start: [30, 12.3, 1.57] },
+      { id: 'f2', name: '2 этаж · коммерция', sub: 'офисы и сервисы', img: 'img/ordo/walk/plan_f2.jpg', mask: 'img/ordo/walk/mask_f2.png', glass: 'img/ordo/walk/glass_f2.png', w: 197.731, h: 31.843, height: 3.9 },
+    ],
     plot: ORDO_PLOT,
     volumes: [
-      { pts: rect(0, 106.5, 14.85, 124.5), base: 0, top: 7.2, tex: 'shop', floorH: 3.6 },
-      { pts: rect(54.05, 106.5, 80.55, 124.5), base: 0, top: 7.2, tex: 'shop', floorH: 3.6 },
-      { pts: rect(119.75, 106.5, 146.25, 124.5), base: 0, top: 7.2, tex: 'shop', floorH: 3.6 },
+      { pts: rect(0, 106.5, 14.85, 124.5), base: 0, top: 8.4, tex: 'shop', floorH: 4.2, name: 'Коммерция · 1–2 этажи (СКБ)' },
+      { pts: rect(54.05, 106.5, 80.55, 124.5), base: 0, top: 8.4, tex: 'shop', floorH: 4.2, name: 'Коммерция · 1–2 этажи (СКБ)' },
+      { pts: rect(119.75, 106.5, 146.25, 124.5), base: 0, top: 8.4, tex: 'shop', floorH: 4.2, name: 'Коммерция · 1–2 этажи (СКБ)' },
       { pts: rect(65.6, 10, 87.3, 31.7), base: 0, top: 7.2, tex: 'kinder', floorH: 3.6, name: 'Частный детский сад · 2 этажа' },
     ],
     surfaces: [
@@ -380,17 +386,17 @@ window.YURTA_PROJECTS = [
       { t: 'sport', x0: 113.5, y0: 18, x1: 129, y1: 32, z: 0.5, kind: 'basket' },
     ],
     blocks: [
-      { id: '1', floors: 16, fp: notched(14.85, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
-      { id: '2', floors: 16, fp: notched(80.55, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
-      { id: '3', floors: 16, fp: notched(146.25, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800 },
-      { id: '4', floors: 16, fp: notched(0, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
-      { id: '5', floors: 16, fp: notched(0, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
-      { id: '6', floors: 16, fp: notched(0, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90 },
-      { id: '7', floors: 16, fp: notched(65.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '8', floors: 16, fp: notched(65.6, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '9', floors: 16, fp: notched(131.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '10', floors: 16, fp: notched(131.6, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
-      { id: '11', floors: 16, fp: notched(131.6, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2 },
+      { id: '1', floors: 16, fp: notched(14.85, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А1): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '2', floors: 16, fp: notched(80.55, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А2): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '3', floors: 16, fp: notched(146.25, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А3): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '4', floors: 16, fp: notched(0, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '5', floors: 16, fp: notched(0, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '6', floors: 16, fp: notched(0, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '7', floors: 16, fp: notched(65.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '8', floors: 16, fp: notched(65.6, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '9', floors: 16, fp: notched(131.6, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '10', floors: 16, fp: notched(131.6, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
+      { id: '11', floors: 16, fp: notched(131.6, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
     ],
   },
   {

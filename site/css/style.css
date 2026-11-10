@@ -512,3 +512,5 @@ button:disabled { cursor: not-allowed; }
 .ft-levels button.on { background: linear-gradient(180deg, rgba(240,120,72,.95), rgba(206,78,34,.95)); box-shadow: inset 0 1px 1px rgba(255,255,255,.5), 0 4px 12px rgba(212,87,42,.4); }
 .ftour .tour-msg[hidden] { display: none; }
 @media (max-width: 760px) { .ft-levels { top: 128px; } }
+.ftour .tour-help { left: auto; right: 16px; transform: none; max-width: min(520px, calc(100vw - 32px)); }
+@media (max-width: 760px) { .ftour .tour-help { display: none; } .ftour .tour-mini { left: 12px; right: 12px; bottom: 16px; } }

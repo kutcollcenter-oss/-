@@ -29,7 +29,8 @@
     return [p.origin[0] + xr / mLng, p.origin[1] + yr / M_LAT];
   }
   const centroid = (pts) => [pts.reduce((a, q) => a + q[0], 0) / pts.length, pts.reduce((a, q) => a + q[1], 0) / pts.length];
-  const floorBase = (p, f) => p.residentialBase + (f - p.firstResidentialFloor) * p.floorHeight;
+  const LV = (p, b, k) => (b && b[k] != null ? b[k] : p[k]); // параметр блока, если задан, иначе — ЖК
+  const floorBase = (p, f, b) => LV(p, b, 'residentialBase') + (f - LV(p, b, 'firstResidentialFloor')) * LV(p, b, 'floorHeight');
 
   /* ---------- Квартиры, цены, статусы ---------- */
   function hash(str) {
@@ -37,7 +38,7 @@
     h ^= h >>> 16; h = Math.imul(h, 0x85ebca6b); h ^= h >>> 13; h = Math.imul(h, 0xc2b2ae35); h ^= h >>> 16;
     return (h >>> 0) / 4294967295;
   }
-  const aptNumber = (p, b, f, a) => (f - p.firstResidentialFloor) * b.plan.apts.length + a.n;
+  const aptNumber = (p, b, f, a) => (f - LV(p, b, 'firstResidentialFloor')) * b.plan.apts.length + a.n;
   function status(p, b, f, a) {
     const key = `${b.id}-${aptNumber(p, b, f, a)}`;
     if (p.soldApts[key]) return p.soldApts[key];
@@ -47,7 +48,7 @@
   }
   const priceM2 = (p, b) => b.pricePerM2 || p.pricePerM2;
   const aptPrice = (p, b, a) => Math.round(a.area * priceM2(p, b));
-  const floorsOf = (p, b) => Array.from({ length: b.floors - p.firstResidentialFloor + 1 }, (_, i) => p.firstResidentialFloor + i);
+  const floorsOf = (p, b) => Array.from({ length: b.floors - LV(p, b, 'firstResidentialFloor') + 1 }, (_, i) => LV(p, b, 'firstResidentialFloor') + i);
   const freeCount = (p, b, f) => b.plan.apts.filter((a) => status(p, b, f, a) === 'free').length;
   const blockFree = (p, b) => floorsOf(p, b).reduce((s, f) => s + freeCount(p, b, f), 0);
   const projectFree = (p) => p.blocks.reduce((s, b) => s + blockFree(p, b), 0);
@@ -233,12 +234,12 @@
   }
   // Точки, которые должны быть видны с камеры: квартира, этаж или весь блок
   function focusTargets(p, b, f, a) {
-    const top = floorBase(p, b.floors + 1);
+    const top = floorBase(p, b.floors + 1, b);
     if (a) {
-      const lp = aptLocalPoly(p, b, a), z = floorBase(p, f) + p.floorHeight / 2;
+      const lp = aptLocalPoly(p, b, a), z = floorBase(p, f, b) + LV(p, b, 'floorHeight') / 2;
       return [[...centroid(lp), z], ...lp.map((q) => [q[0], q[1], z])];
     }
-    const zs = f ? [floorBase(p, f) + p.floorHeight / 2] : [top * 0.25, top * 0.6, top * 0.95];
+    const zs = f ? [floorBase(p, f, b) + LV(p, b, 'floorHeight') / 2] : [top * 0.25, top * 0.6, top * 0.95];
     const pts = [centroid(b.fp), ...b.fp];
     return zs.flatMap((z) => pts.map((q) => [q[0], q[1], z]));
   }
@@ -275,7 +276,7 @@
   function flyAt(p, b, localAz, extra = {}) {
     // камера стоит со стороны localAz и смотрит на блок
     const bearing = toMapBearing(p, localAz + 180 + 18);
-    const top = floorBase(p, b.floors + 1);
+    const top = floorBase(p, b.floors + 1, b);
     map.flyTo({ center: toLngLat(p, centroid(b.fp)), zoom: 18.6 - top / 70 - (isMobile() ? 0.6 : 0), pitch: 60, bearing, duration: 1600, padding: camPad(), essential: true, ...extra });
   }
   const flyBlock = (p, b) => flyAt(p, b, blockFacing(p, b));
@@ -305,7 +306,7 @@
     const a = b && f && b.plan.apts.find((x) => x.n === parseInt(parts[3], 10));
     const prevProject = state.project, prevBlock = state.block, prevApt = state.apt;
     state.project = p || null; state.block = b || null;
-    state.floor = (b && f >= p.firstResidentialFloor && f <= b.floors) ? f : null;
+    state.floor = (b && f >= LV(p, b, 'firstResidentialFloor') && f <= b.floors) ? f : null;
     state.apt = state.floor ? a || null : null;
     if (viewMode && (!state.apt || viewMode.a !== state.apt)) closeWindowView(false);
     if (!state.apt) sunOff();
@@ -557,7 +558,7 @@
       <p class="muted" style="font-size:13px">${esc(p.about)}</p>
       ${budgetDone() ? '<div class="glow-note"><i></i>Зелёным на доме — квартиры по вашему бюджету</div>' : ''}
       ${p.walk ? `<div class="walk-box"><div class="section-title" style="margin-top:0"><h3>🚶 Прогулка по комплексу</h3><span class="small">по рабочему проекту</span></div>
-        <div class="walk-grid">${p.walk.map((l) => `<button class="tool" data-walk="${l.id}"><i class="ti">${l.id.startsWith('p') ? '🅿️' : l.id === 'f1' ? '🚪' : '🛍'}</i><span class="tt"><b>${l.name}</b><small>${l.id.startsWith('p') ? 'подземный паркинг' : l.id === 'f1' ? 'подъезды и магазины' : 'коммерческие помещения'}</small></span></button>`).join('')}</div></div>` : ''}
+        <div class="walk-grid">${p.walk.map((l) => `<button class="tool" data-walk="${l.id}"><i class="ti">${l.id.startsWith('p') ? '🅿️' : l.id === 'f1' ? '🚪' : '🛍'}</i><span class="tt"><b>${l.name}</b><small>${l.sub || (l.id.startsWith('p') ? 'подземный паркинг' : l.id === 'f1' ? 'подъезды и магазины' : 'коммерческие помещения')}</small></span></button>`).join('')}</div></div>` : ''}
       ${nearbyHtml()}
       ${progressHtml()}
       <div class="section-title"><h3>Выберите блок</h3><span class="small">или нажмите на этаж в 3D</span></div>
@@ -567,7 +568,7 @@
     bindGallery(p);
     bindBlockHover(p);
     bindProgress(p);
-    panelBody.querySelectorAll('[data-walk]').forEach((b) => b.onclick = () => window.YurtaFloorTour.open({ title: `${p.name} · прогулка по этажам`, levels: p.walk, level: b.dataset.walk }));
+    panelBody.querySelectorAll('[data-walk]').forEach((b) => b.onclick = () => window.YurtaFloorTour.open({ title: `${p.name} · прогулка по этажам`, levels: p.walk, level: b.dataset.walk, scale: p.walkScale }));
     bindNearby(p);
   }
   function bindBlockHover(p) {
@@ -583,7 +584,7 @@
     panelBody.innerHTML = `
       ${crumbs(`#/${p.id}`, [['Все объекты', '#/'], [p.name, `#/${p.id}`], [blockName(p, b)]])}
       <h1>${blockName(p, b)}</h1>
-      <p class="muted" style="margin:6px 0 0">${b.floors} этажей · ${b.plan.apts.length} квартир на этаже · жилые этажи с ${p.firstResidentialFloor}-го<br>
+      <p class="muted" style="margin:6px 0 0">${b.floors} этажей · ${b.plan.apts.length} квартир на этаже · жилые этажи с ${LV(p, b, 'firstResidentialFloor')}-го<br>
       ${som(priceM2(p, b))} за м² · свободно <b>${blockFree(p, b)}</b> квартир</p>
       <div class="section-title"><h3>Выберите этаж</h3><span class="small">наведите — этаж подсветится в 3D</span></div>
       <div class="floors">${floors.map((f) => { const c = freeCount(p, b, f); return `<button class="floor-btn ${c ? '' : 'none'}" data-go="#/${p.id}/${b.id}/${f}" data-f="${f}"><b>${f}</b><span>${c ? c + ' своб.' : 'нет'}</span></button>`; }).join('')}</div>`;
@@ -621,7 +622,7 @@
       <div class="apt-head"><h1>${f} этаж</h1>
         <div style="display:flex;gap:6px">
           <button class="back" data-go="#/${p.id}/${b.id}/${Math.min(b.floors, f + 1)}" aria-label="Этаж выше" ${f >= b.floors ? 'disabled' : ''}>▲</button>
-          <button class="back" data-go="#/${p.id}/${b.id}/${Math.max(p.firstResidentialFloor, f - 1)}" aria-label="Этаж ниже" ${f <= p.firstResidentialFloor ? 'disabled' : ''}>▼</button>
+          <button class="back" data-go="#/${p.id}/${b.id}/${Math.max(LV(p, b, 'firstResidentialFloor'), f - 1)}" aria-label="Этаж ниже" ${f <= LV(p, b, 'firstResidentialFloor') ? 'disabled' : ''}>▼</button>
         </div></div>
       <p class="muted" style="margin:4px 0 12px">${blockName(p, b)} · свободно ${freeCount(p, b, f)} из ${apts.length}. Нажмите на квартиру на плане.</p>
       <div class="plan-tools">
@@ -789,7 +790,7 @@
   // Часы, когда солнце попадает в окна квартиры (с учётом домов этого ЖК), шаг 15 минут
   function sunHours(p, b, f, a, ymd) {
     const wins = aptWindows(p, b, a); if (!wins.length) return { slots: [], total: 0 };
-    const z = floorBase(p, f) + 1.5, ll = toLngLat(p, centroid(b.fp)), slots = [];
+    const z = floorBase(p, f, b) + 1.5, ll = toLngLat(p, centroid(b.fp)), slots = [];
     for (let t = 4; t < 22; t += 0.25) {
       const s = sunPos(localDate(ymd, t), ll[1], ll[0]);
       if (s.alt < 2) { slots.push(false); continue; }
@@ -943,7 +944,7 @@
       for (const w of ws) { cx += w.c[0] * w.len; cy += w.c[1] * w.len; L += w.len; }
       const n = ws[0].n, c = [cx / L, cy / L];
       // насколько открыт вид: расстояние до ближайшего дома ЖК в эту сторону (до 400 м)
-      const open = engine ? engine.rayDist(p, [c[0] + n[0] * 0.5, c[1] + n[1] * 0.5, floorBase(p, f || p.firstResidentialFloor) + 1.6], azim(n[0], n[1])) : 400;
+      const open = engine ? engine.rayDist(p, [c[0] + n[0] * 0.5, c[1] + n[1] * 0.5, floorBase(p, f || LV(p, b, 'firstResidentialFloor'), b) + 1.6], azim(n[0], n[1])) : 400;
       return { len: L, open, eye: toLngLat(p, [c[0] + n[0] * 3, c[1] + n[1] * 3]), az: (azim(n[0], n[1]) - (p.rotation || 0) + 360) % 360 };
     }).sort((x, y) => (Math.min(y.open, 150) * Math.sqrt(y.len)) - (Math.min(x.open, 150) * Math.sqrt(x.len)));
   }
@@ -962,7 +963,7 @@
     map.setMaxPitch(85);
     document.body.classList.add('window-view');
     try { map.setPaintProperty('building-3d', 'fill-extrusion-opacity', 0.95); map.setPaintProperty('building-3d', 'fill-extrusion-color', '#c9c3b8'); } catch (e) {}
-    placeCamera(g.eye, floorBase(p, f) + 1.6, g.az, 80, true);
+    placeCamera(g.eye, floorBase(p, f, b) + 1.6, g.az, 80, true);
     map.once('moveend', () => { if (viewMode) { const n = showViewPlaces(g); const t = $('#wbPlaces'); if (t) t.textContent = n ? `Подписаны места рядом в этом направлении: ${Math.min(n, 18)}` : 'В этом направлении рядом нет отмеченных мест'; } });
     renderWinBar();
   }
@@ -970,28 +971,28 @@
     const { p, b, a, g } = viewMode, f = viewMode.f;
     const photos = ((mediaCache[p.id] || {}).media || []).filter((m) => m.type === 'view' && (!m.block || m.block === b.id) && (!m.floorFrom || f >= m.floorFrom) && (!m.floorTo || f <= m.floorTo) && (!m.side || m.side === sideOf(g.az)));
     let bar = $('#winBar'); if (!bar) { bar = document.createElement('div'); bar.id = 'winBar'; document.body.append(bar); }
-    const h = Math.round(floorBase(p, f) + 1.6);
+    const h = Math.round(floorBase(p, f, b) + 1.6);
     const sideBtns = g.sides.length > 1 ? `<div class="wb-sides">Окна выходят на: ${g.sides.map((sd, i) => `<button data-side="${i}" class="${i === g.i ? 'on' : ''}">${SIDES[sideOf(sd.az)]}</button>`).join('')}</div>` : '';
     bar.innerHTML = `<div class="wb-title"><b>👁 Вид из окна</b><span>${esc(p.name)} · блок ${b.id} · кв. ${aptNumber(p, b, f, a)} · окна на ${SIDES[sideOf(g.az)]}</span></div>${sideBtns}
-      <div class="wb-floor"><button data-wv="down" ${f <= p.firstResidentialFloor ? 'disabled' : ''} aria-label="Этаж ниже">▼</button>
-        <input type="range" id="wbF" min="${p.firstResidentialFloor}" max="${b.floors}" value="${f}" aria-label="Этаж">
+      <div class="wb-floor"><button data-wv="down" ${f <= LV(p, b, 'firstResidentialFloor') ? 'disabled' : ''} aria-label="Этаж ниже">▼</button>
+        <input type="range" id="wbF" min="${LV(p, b, 'firstResidentialFloor')}" max="${b.floors}" value="${f}" aria-label="Этаж">
         <button data-wv="up" ${f >= b.floors ? 'disabled' : ''} aria-label="Этаж выше">▲</button>
         <b id="wbLbl">${f} этаж · ${h} м над землёй</b></div>
       <div class="wb-btns">${photos.length ? `<button data-wv="photo" class="hl">📷 Фото с дрона (${photos.length})</button>` : ''}<button data-wv="exit" class="x">✕ Выйти</button></div>
       <p><span id="wbPlaces"></span> Дома и места — по данным OpenStreetMap, высоты домов примерные.${photos.length ? '' : ' Настоящее фото с этой высоты появится, когда его загрузит менеджер.'}</p>`;
     const setFloor = (nf, animate) => {
-      nf = Math.max(p.firstResidentialFloor, Math.min(b.floors, nf));
+      nf = Math.max(LV(p, b, 'firstResidentialFloor'), Math.min(b.floors, nf));
       viewMode.f = nf;
-      placeCamera(g.eye, floorBase(p, nf) + 1.6, g.az, 80, animate);
-      $('#wbLbl').textContent = `${nf} этаж · ${Math.round(floorBase(p, nf) + 1.6)} м над землёй`;
+      placeCamera(g.eye, floorBase(p, nf, b) + 1.6, g.az, 80, animate);
+      $('#wbLbl').textContent = `${nf} этаж · ${Math.round(floorBase(p, nf, b) + 1.6)} м над землёй`;
       $('#wbF').value = nf;
-      bar.querySelector('[data-wv=down]').disabled = nf <= p.firstResidentialFloor;
+      bar.querySelector('[data-wv=down]').disabled = nf <= LV(p, b, 'firstResidentialFloor');
       bar.querySelector('[data-wv=up]').disabled = nf >= b.floors;
     };
     $('#wbF').oninput = (e) => setFloor(+e.target.value, false);
     bar.querySelectorAll('[data-side]').forEach((btn) => btn.onclick = () => {
       const ng = windowGeom(p, b, a, +btn.dataset.side, viewMode.f); viewMode.g = ng;
-      placeCamera(ng.eye, floorBase(p, viewMode.f) + 1.6, ng.az, 80, true);
+      placeCamera(ng.eye, floorBase(p, viewMode.f, b) + 1.6, ng.az, 80, true);
       map.once('moveend', () => { if (viewMode) showViewPlaces(ng); });
       renderWinBar();
     });
@@ -1037,7 +1038,7 @@
     // куда на карте смотрит «верх» плана — чтобы повернуть снимки в системе координат тура
     const [u0, u1] = planToLocal(p, b, [[0, 0], [0, -100]]);
     const up = (azim(u1[0] - u0[0], u1[1] - u0[1]) - (p.rotation || 0) + 360) % 360;
-    const pano = { eyeH: floorBase(p, f) + 1.6, shots: [], subs: new Set(), on(fn) { this.subs.add(fn); } };
+    const pano = { eyeH: floorBase(p, f, b) + 1.6, shots: [], subs: new Set(), on(fn) { this.subs.add(fn); } };
     const run = async () => {
       const sides = windowSides(p, b, a, f).slice(0, 3);
       if (!sides.length) return;
@@ -1094,7 +1095,7 @@
             const wins = aptWindows(p, b, a);
             for (const f of floorsOf(p, b)) {
               if (status(p, b, f, a) !== 'free') continue;
-              const z0 = floorBase(p, f) + 0.25, z1 = floorBase(p, f) + p.floorHeight - 0.35;
+              const z0 = floorBase(p, f, b) + 0.25, z1 = floorBase(p, f, b) + LV(p, b, 'floorHeight') - 0.35;
               for (const w of wins) {
                 const d = [-w.n[1], w.n[0]], h = w.len / 2 - 0.15;
                 quads.push({ a: [w.c[0] - d[0] * h, w.c[1] - d[1] * h], b: [w.c[0] + d[0] * h, w.c[1] + d[1] * h], n: w.n, z0, z1 });

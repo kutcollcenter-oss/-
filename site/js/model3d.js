@@ -150,6 +150,7 @@
     });
   }
 
+  const LV = (p, b, k) => (b && b[k] != null ? b[k] : p[k]); // параметр блока, если задан, иначе — ЖК
   /* ---------- Геометрия ---------- */
   const signedArea = (pts) => pts.reduce((s, p, i) => { const q = pts[(i + 1) % pts.length]; return s + p[0] * q[1] - q[0] * p[1]; }, 0) / 2;
   const ccw = (pts) => (signedArea(pts) < 0 ? pts.slice().reverse() : pts);
@@ -614,13 +615,13 @@
       grp.add(m);
     };
     for (const b of p.blocks) {
-      const top = api.floorBase(p, b.floors + 1);
+      const top = api.floorBase(p, b.floors + 1, b);
       const fp = ccw(b.fp);
       const bg = new THREE.Group(); root.add(bg);
       const fins = [], bands = [];
       // коммерческий этаж в пятне блока
-      if (p.residentialBase > p.blockBase) {
-        const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, p.residentialBase, BAY * 8, (p.residentialBase - p.blockBase) * 2, p.blockBase), shopMat);
+      if (LV(p, b, 'residentialBase') > p.blockBase) {
+        const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, LV(p, b, 'residentialBase'), BAY * 8, (LV(p, b, 'residentialBase') - p.blockBase) * 2, p.blockBase), shopMat);
         w.userData = { pid: p.id, block: b.id, label: 'Коммерческие помещения' }; bg.add(w); pick.push(w);
       }
       // Фасад по кусочкам ~3 м: окна только там, где за стеной квартира (по плану этажа),
@@ -629,7 +630,7 @@
       const blockPick = [walls], pieces = [];
       {
         const pos = [], uv = [], idx = [], bpos = [];
-        const v0 = 0, v1 = (top - p.residentialBase) / (p.floorHeight * ATLAS_FLOORS), uSize = BAY * ATLAS_BAYS;
+        const v0 = 0, v1 = (top - LV(p, b, 'residentialBase')) / (LV(p, b, 'floorHeight') * ATLAS_FLOORS), uSize = BAY * ATLAS_BAYS;
         let u0 = 0;
         fp.forEach((a, i) => {
           const c = fp[(i + 1) % fp.length];
@@ -643,7 +644,7 @@
             pieces.push({ c: mid, n, len: pl, win });
             const ua = u0 + pl * k / uSize, ub = u0 + pl * (k + 1) / uSize;
             const target = win ? pos : bpos, base = target.length / 3;
-            target.push(A[0], A[1], p.residentialBase, B[0], B[1], p.residentialBase, B[0], B[1], top, A[0], A[1], top);
+            target.push(A[0], A[1], LV(p, b, 'residentialBase'), B[0], B[1], LV(p, b, 'residentialBase'), B[0], B[1], top, A[0], A[1], top);
             if (win) { uv.push(ua, v0, ub, v0, ub, v1, ua, v1); idx.push(base, base + 1, base + 2, base, base + 2, base + 3); }
           }
           u0 = Math.round((u0 + len / uSize) * 4) / 4;
@@ -664,7 +665,7 @@
       walls.userData = { pid: p.id, block: b.id };
       bg.add(walls); pick.push(walls);
       const roof = buildRoof(bg, p, b, fp, top, rs, roofMats, seed); pick.push(roof);
-      bg.add(slab(offsetPoly(fp, 0.12), p.residentialBase - 0.4, p.residentialBase + 0.1, white)); // цокольный пояс
+      bg.add(slab(offsetPoly(fp, 0.12), LV(p, b, 'residentialBase') - 0.4, LV(p, b, 'residentialBase') + 0.1, white)); // цокольный пояс
 
       if (p.style === 'gold') {
         // белые ламели и «корона» с козырьком, как на рендерах (парапет — в buildRoof)
@@ -683,10 +684,10 @@
           for (let k = 0; k <= n; k++) {
             const t = k / n, x = a[0] + (c[0] - a[0]) * t + nx * 0.3, y = a[1] + (c[1] - a[1]) * t + ny * 0.3;
             const wide = k === 0 || k === n;
-            fins.push({ x: x + nx * 0.2, y: y + ny * 0.2, z: (p.residentialBase + top + 3.4) / 2, sx: wide ? 1.5 : 0.9, sy: 1.0, sz: top + 3.4 - p.residentialBase, ang });
+            fins.push({ x: x + nx * 0.2, y: y + ny * 0.2, z: (LV(p, b, 'residentialBase') + top + 3.4) / 2, sx: wide ? 1.5 : 0.9, sy: 1.0, sz: top + 3.4 - LV(p, b, 'residentialBase'), ang });
           }
-          for (let f = p.firstResidentialFloor + 5; f <= b.floors - 2; f += 6) {
-            const z = api.floorBase(p, f);
+          for (let f = LV(p, b, 'firstResidentialFloor') + 5; f <= b.floors - 2; f += 6) {
+            const z = api.floorBase(p, f, b);
             bands.push({ x: (a[0] + c[0]) / 2 + nx * 0.4, y: (a[1] + c[1]) / 2 + ny * 0.4, z, sx: len + 0.6, sy: 0.9, sz: 0.7, ang });
           }
         });
@@ -708,9 +709,9 @@
     function placeHighlight(mesh, b, f) {
       if (!b || !f) { mesh.visible = false; return; }
       const key = b.id;
-      if (!geoCache[key]) geoCache[key] = new THREE.ExtrudeGeometry(shapeOf(offsetPoly(blockInfo[b.id].fp, 0.35)), { depth: p.floorHeight - 0.15, bevelEnabled: false });
+      if (!geoCache[key]) geoCache[key] = new THREE.ExtrudeGeometry(shapeOf(offsetPoly(blockInfo[b.id].fp, 0.35)), { depth: LV(p, b, 'floorHeight') - 0.15, bevelEnabled: false });
       mesh.geometry = geoCache[key];
-      mesh.position.z = api.floorBase(p, f) + 0.05;
+      mesh.position.z = api.floorBase(p, f, b) + 0.05;
       mesh.visible = true;
     }
     // Мигающие окна выбранной квартиры: тёплое «светящееся» стекло поверх фасада
@@ -718,11 +719,11 @@
     const aptMesh = new THREE.Mesh(new THREE.BufferGeometry(), aptMat);
     aptMesh.visible = false; aptMesh.renderOrder = 12;
     root.add(aptMesh);
-    function placeApt(localPoly, f) {
+    function placeApt(localPoly, f, b) {
       if (!localPoly) { aptMesh.visible = false; selMat.opacity = 0.78; return; }
       aptMesh.geometry.dispose();
-      aptMesh.geometry = new THREE.ExtrudeGeometry(shapeOf(offsetPoly(localPoly, 0.55)), { depth: p.floorHeight - 0.5, bevelEnabled: false });
-      aptMesh.position.z = api.floorBase(p, f) + 0.25;
+      aptMesh.geometry = new THREE.ExtrudeGeometry(shapeOf(offsetPoly(localPoly, 0.55)), { depth: LV(p, b, 'floorHeight') - 0.5, bevelEnabled: false });
+      aptMesh.position.z = api.floorBase(p, f, b) + 0.25;
       aptMesh.visible = true; selMat.opacity = 0.35;
     }
     const ghostMat = new THREE.MeshLambertMaterial({ color: 0xe9ecf0, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
@@ -858,8 +859,8 @@
       if (ud.podium) return { project: p, podium: true, label: ud.label };
       const b = p.blocks.find((x) => x.id === ud.block);
       const z = L.built.root.worldToLocal(hit.point.clone()).z;
-      if (z < p.residentialBase - 0.01) return { project: p, block: b, podium: true, label: ud.label || 'Коммерческие помещения' };
-      const f = Math.min(b.floors, Math.max(p.firstResidentialFloor, p.firstResidentialFloor + Math.floor((z - p.residentialBase) / p.floorHeight)));
+      if (z < LV(p, b, 'residentialBase') - 0.01) return { project: p, block: b, podium: true, label: ud.label || 'Коммерческие помещения' };
+      const f = Math.min(b.floors, Math.max(LV(p, b, 'firstResidentialFloor'), LV(p, b, 'firstResidentialFloor') + Math.floor((z - LV(p, b, 'residentialBase')) / LV(p, b, 'floorHeight'))));
       return { project: p, block: b, floor: f };
     }
     function highlight(kind, p, b, f) {
@@ -871,7 +872,7 @@
       map.triggerRepaint();
     }
     function highlightApt(p, b, f, localPoly) {
-      for (const id in layers) { const L = layers[id]; if (L.built) L.built.placeApt(p && p.id === id ? localPoly : null, f); }
+      for (const id in layers) { const L = layers[id]; if (L.built) L.built.placeApt(p && p.id === id ? localPoly : null, f, b); }
       map.triggerRepaint();
     }
     // Какие блоки стоят между камерой и выбранным блоком/квартирой — только они становятся прозрачными

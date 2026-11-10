@@ -56,7 +56,7 @@
     close();
     const root = document.createElement('div'); root.className = 'tour ftour';
     root.innerHTML = `<canvas></canvas>
-      <div class="tour-top"><div><b>🏢 ${o.title}</b><span>по рабочему проекту (АР), масштаб 1:150</span></div>
+      <div class="tour-top"><div><b>🏢 ${o.title}</b><span>по рабочему проекту (АР), масштаб ${o.scale || '1:150'}</span></div>
         <div class="tour-modes"><button data-m="top">Сверху</button><button data-m="walk" class="on">🚶 Прогулка</button></div>
         <button class="tour-x" aria-label="Закрыть">✕</button></div>
       <div class="ft-levels">${o.levels.map((l) => `<button data-l="${l.id}">${l.name}</button>`).join('')}</div>
@@ -90,8 +90,8 @@
     msg.textContent = `Загружаю: ${L.name}…`; msg.hidden = false;
     F.root.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === id));
     const me = F;
-    let plan, maskImg;
-    try { [plan, maskImg] = await Promise.all([loadImg(L.img), loadImg(L.mask)]); } catch (e) { msg.textContent = e.message; return; }
+    let plan, maskImg, glassImg = null;
+    try { [plan, maskImg, glassImg] = await Promise.all([loadImg(L.img), loadImg(L.mask), L.glass ? loadImg(L.glass) : null]); } catch (e) { msg.textContent = e.message; return; }
     if (F !== me) return;
     const M = readMask(maskImg), cell = L.w / M.W, H = L.height;
     // старая сцена — прочь
@@ -106,11 +106,19 @@
     const fill = new THREE.DirectionalLight(0xffffff, 0.18); fill.position.set(-30, 30, -50); scene.add(fill);
     // стены и колонны
     const list = rects(M.wall, M.W, M.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0, H]);
-    const walls = new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: under ? 0xa9a7a2 : 0xd8d3ca }));
+    const walls = new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: under ? 0xa9a7a2 : 0xeeeae3 }));
+    // витрины и стеклянные перегородки: видно, но пройти можно — там двери магазинов
+    if (glassImg) {
+      const G = readMask(glassImg), gl = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0.05, H - 0.25]);
+      const glass = new THREE.Mesh(boxes(gl), new THREE.MeshLambertMaterial({ color: 0x9fd2ec, transparent: true, opacity: 0.32, depthWrite: false }));
+      glass.renderOrder = 2; scene.add(glass);
+      const frame = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, H - 0.3, H - 0.2]);
+      scene.add(new THREE.Mesh(boxes(frame), new THREE.MeshLambertMaterial({ color: 0x3a3f46 })));
+    }
     scene.add(walls);
     // пол — чертёж; потолок — бетонная плита
     const tex = new THREE.Texture(plan); tex.needsUpdate = true; tex.anisotropy = F.renderer.capabilities.getMaxAnisotropy();
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ map: tex, color: under ? 0x9c9a95 : 0xf2efe9 }));
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ map: tex, color: under ? 0x9c9a95 : 0xd2ccc2 }));
     floor.rotation.x = -Math.PI / 2; floor.position.set(L.w / 2, 0, L.h / 2); scene.add(floor);
     const ceil = new THREE.Mesh(new THREE.PlaneGeometry(L.w, L.h), new THREE.MeshLambertMaterial({ color: under ? 0x6d6d6b : 0xd9d6d0, side: THREE.DoubleSide }));
     ceil.rotation.x = -Math.PI / 2; ceil.position.set(L.w / 2, H, L.h / 2); scene.add(ceil);
@@ -150,7 +158,7 @@
       for (let r = 0; r < 4 && !bs; r += 0.25) for (let a = 0; a < 6.28 && !bs; a += 0.4) if (F.free(sx + Math.cos(a) * r, sz + Math.sin(a) * r)) bs = [sx + Math.cos(a) * r, sz + Math.sin(a) * r];
       if (bs) Object.assign(F.walk, { x: bs[0], z: bs[1], yaw: sy });
     }
-    F.orbit = { yaw: 0, pitch: 1.2, r: Math.max(L.w, L.h) * 0.85, cx: L.w / 2, cz: L.h / 2 };
+    F.orbit = { yaw: 0, pitch: 1.2, r: Math.max(L.w, L.h) * (L.w / L.h > 3 ? 0.55 : 0.85), cx: L.w / 2, cz: L.h / 2 };
     buildMini(plan);
     msg.hidden = true;
     setMode(F.mode);
@@ -172,7 +180,8 @@
   // мини-карта этажа
   function buildMini(plan) {
     const box = $('.tour-mini', F.root), mc = $('canvas', box), L = F.L, touch = matchMedia('(pointer: coarse)').matches;
-    const MS = touch ? 190 : 280, sc = MS / Math.max(L.w, L.h), dpr = Math.min(2, devicePixelRatio || 1);
+    const maxW = touch ? Math.min(innerWidth - 24, 340) : 420, maxH = touch ? 150 : 240;
+    const sc = Math.min(maxW / L.w, maxH / L.h), dpr = Math.min(2, devicePixelRatio || 1);
     const mw = Math.round(L.w * sc), mh = Math.round(L.h * sc);
     mc.width = mw * dpr; mc.height = mh * dpr; mc.style.width = mw + 'px'; mc.style.height = mh + 'px';
     const g = mc.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
