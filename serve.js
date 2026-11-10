@@ -109,7 +109,10 @@ function body(req, max = 20000) {
 
 async function api(req, res, url) {
   const p = url.pathname, m = req.method;
-  const ip = req.socket.remoteAddress;
+  // за nginx настоящий адрес посетителя — в X-Forwarded-For (доверяем только локальному прокси)
+  const sock = req.socket.remoteAddress || '';
+  const fwd = (req.headers['x-forwarded-for'] || '').split(',').pop().trim();
+  const ip = /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(sock) && fwd ? fwd : sock;
   if (m === 'POST' && !(req.headers['content-type'] || '').includes('application/json')) return json(res, 415, { error: 'json only' });
   const b = m === 'POST' ? await body(req, p === '/api/media' ? 17e6 : 20000) : {};
   const me = currentUser(req);
