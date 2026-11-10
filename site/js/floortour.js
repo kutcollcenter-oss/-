@@ -90,8 +90,8 @@
     msg.textContent = `Загружаю: ${L.name}…`; msg.hidden = false;
     F.root.querySelectorAll('[data-l]').forEach((b) => b.classList.toggle('on', b.dataset.l === id));
     const me = F;
-    let plan, maskImg, glassImg = null;
-    try { [plan, maskImg, glassImg] = await Promise.all([loadImg(L.img), loadImg(L.mask), L.glass ? loadImg(L.glass) : null]); } catch (e) { msg.textContent = e.message; return; }
+    let plan, maskImg, glassImg = null, cars = [];
+    try { [plan, maskImg, glassImg, cars] = await Promise.all([loadImg(L.img), loadImg(L.mask), L.glass ? loadImg(L.glass) : null, L.cars ? fetch(L.cars).then((r) => r.json()).catch(() => []) : []]); } catch (e) { msg.textContent = e.message; return; }
     if (F !== me) return;
     const M = readMask(maskImg), cell = L.w / M.W, H = L.height;
     // старая сцена — прочь
@@ -106,10 +106,18 @@
     const fill = new THREE.DirectionalLight(0xffffff, 0.18); fill.position.set(-30, 30, -50); scene.add(fill);
     // стены и колонны
     const list = rects(M.wall, M.W, M.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0, H]);
-    const walls = new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: under ? 0xa9a7a2 : 0xeeeae3 }));
+    const walls = new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: under ? 0xa9a7a2 : 0xeeeae3, side: THREE.DoubleSide }));
     // витрины и стеклянные перегородки: видно, но пройти можно — там двери магазинов
-    if (glassImg) {
-      const G = readMask(glassImg), gl = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0.05, H - 0.25]);
+    if (glassImg && !under) { // в паркинге витражей нет — белые полоски там это отделка стен
+      const G = readMask(glassImg);
+      // стекло только в проёмах: у стен белые полоски — это отделка, не витраж
+      if (G.W === M.W && G.H === M.H) {
+        const r = 3, near = new Uint8Array(M.W * M.H);
+        for (let y = 0; y < M.H; y++) for (let x = 0; x < M.W; x++) if (M.wall[y * M.W + x])
+          for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const yy = y + dy, xx = x + dx; if (yy >= 0 && yy < M.H && xx >= 0 && xx < M.W) near[yy * M.W + xx] = 1; }
+        for (let k = 0; k < G.wall.length; k++) if (near[k]) G.wall[k] = 0;
+      }
+      const gl = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, 0.05, H - 0.25]);
       const glass = new THREE.Mesh(boxes(gl), new THREE.MeshLambertMaterial({ color: 0x9fd2ec, transparent: true, opacity: 0.32, depthWrite: false }));
       glass.renderOrder = 2; scene.add(glass);
       const frame = rects(G.wall, G.W, G.H).map(([x, y, w, h]) => [x * cell, y * cell, (x + w) * cell, (y + h) * cell, H - 0.3, H - 0.2]);
@@ -128,10 +136,36 @@
       for (let z = 4; z < L.h; z += 7) for (let x = 4; x < L.w; x += 6) { const i = Math.floor(z / cell) * M.W + Math.floor(x / cell); if (!M.wall[i]) lamps.push([x - 0.6, z - 0.06, x + 0.6, z + 0.06, H - 0.06, H - 0.02]); }
       scene.add(new THREE.Mesh(boxes(lamps), lamp));
     }
+    // машины на местах, где они нарисованы в проекте: кузов, кабина со стёклами, колёса
+    if (cars.length) {
+      const palette = [0xf2f2f0, 0x1f2328, 0x8f959c, 0x2a4f8f, 0x9c2b25, 0xc9ccd1, 0x3d4a3a, 0xe7e1d2];
+      const body = [], cab = [], glassC = [], wheel = [];
+      const byCol = palette.map(() => []);
+      cars.forEach(([x, z, horiz], k) => {
+        const Lc = 4.5, Wc = 1.8, hx = horiz ? Lc / 2 : Wc / 2, hz = horiz ? Wc / 2 : Lc / 2;
+        byCol[(k * 7 + Math.floor(x * 3)) % palette.length].push([x - hx, z - hz, x + hx, z + hz, 0.3, 0.95]);
+        const cx = horiz ? Lc * 0.28 : Wc * 0.42, cz = horiz ? Wc * 0.42 : Lc * 0.28;
+        cab.push([x - cx, z - cz, x + cx, z + cz, 0.95, 1.42]);
+        glassC.push([x - cx - 0.02, z - cz - 0.02, x + cx + 0.02, z + cz + 0.02, 1.0, 1.36]);
+        for (const s1 of [-1, 1]) for (const s2 of [-1, 1]) {
+          const wx = horiz ? s1 * Lc * 0.32 : s2 * Wc * 0.42, wz = horiz ? s2 * Wc * 0.42 : s1 * Lc * 0.32;
+          wheel.push([x + wx - 0.33, z + wz - 0.33, x + wx + 0.33, z + wz + 0.33, 0, 0.62]);
+        }
+      });
+      byCol.forEach((list, k) => { if (list.length) scene.add(new THREE.Mesh(boxes(list), new THREE.MeshLambertMaterial({ color: palette[k], side: THREE.DoubleSide }))); });
+      scene.add(new THREE.Mesh(boxes(cab), new THREE.MeshLambertMaterial({ color: 0x2b3036, side: THREE.DoubleSide })));
+      scene.add(new THREE.Mesh(boxes(glassC), new THREE.MeshLambertMaterial({ color: 0x9fc4dd, transparent: true, opacity: 0.55, side: THREE.DoubleSide })));
+      scene.add(new THREE.Mesh(boxes(wheel), new THREE.MeshLambertMaterial({ color: 0x111214, side: THREE.DoubleSide })));
+    }
     // проходимость: стена плюс радиус человека
     const r = Math.ceil(RADIUS / cell), block = new Uint8Array(M.W * M.H);
     for (let y = 0; y < M.H; y++) for (let x = 0; x < M.W; x++) if (M.wall[y * M.W + x])
       for (let dy = -r; dy <= r; dy++) { const yy = y + dy; if (yy < 0 || yy >= M.H) continue; for (let dx = -r; dx <= r; dx++) { const xx = x + dx; if (xx >= 0 && xx < M.W && dx * dx + dy * dy <= r * r) block[yy * M.W + xx] = 1; } }
+    for (const [x, z, horiz] of cars) {
+      const hx = (horiz ? 2.25 : 0.9) + RADIUS, hz = (horiz ? 0.9 : 2.25) + RADIUS;
+      for (let gz = Math.max(0, Math.floor((z - hz) / cell)); gz <= Math.min(M.H - 1, Math.floor((z + hz) / cell)); gz++)
+        for (let gx = Math.max(0, Math.floor((x - hx) / cell)); gx <= Math.min(M.W - 1, Math.floor((x + hx) / cell)); gx++) block[gz * M.W + gx] = 1;
+    }
     Object.assign(F, { scene, L, M, cell, H, block, floor, ceil, target: null, path: null, under });
     // что внутри здания: заливаем снаружи по сетке, где стены «утолщены» на 1,5 м (так закрываются входы и ворота)
     const s = 4, GW = Math.ceil(M.W / s), GH = Math.ceil(M.H / s), coarse = new Uint8Array(GW * GH);
