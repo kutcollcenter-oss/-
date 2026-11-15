@@ -305,6 +305,15 @@
     root.add(new THREE.Mesh(quad([x0, yIn, -depth], [x1, yIn, -depth], [x1, yIn, 0.9], [x0, yIn, 0.9]), lambert({ color: 0x1f2328 })));
     const g = new THREE.Group(); g.position.z = -depth; root.add(g); // ворота стоят на дне пандуса
     gatePortal(g, x0 + 0.3, x1 - 0.3, yIn, depth + 2.4, d.sign, yOut > yIn ? 'north' : 'south');
+    if (d.roof) { // крытый пандус: стены во всю высоту, плоская кровля, светлый пояс над въездом
+      const H = d.roof, yA = Math.min(yIn, yOut), yB = Math.max(yIn, yOut);
+      const wallW = lambert({ color: 0xe9e7e1 }), roofM = lambert({ color: 0x4a4e54 });
+      for (const x of [x0, x1]) root.add(boxMesh(x - 0.25, yA, 0.1, x + 0.25, yB, H, wallW));
+      root.add(boxMesh(x0 - 0.45, yA - 0.3, H, x1 + 0.45, yB + 0.3, H + 0.35, roofM));
+      root.add(boxMesh(x0 - 0.45, yA - 0.35, H + 0.35, x1 + 0.45, yB + 0.35, H + 0.75, white));
+      root.add(boxMesh(x0 + 0.05, yA + 0.1, H + 0.75, x1 - 0.05, yB - 0.1, H + 0.8, roofM)); // кровля внутри светлого парапета
+      root.add(boxMesh(x0 - 0.25, yOut - 0.25, H - 0.7, x1 + 0.25, yOut + 0.25, H, white));
+    }
   }
   // Стеклянный арочный навес над въездом в подземный паркинг (ось — вдоль y)
   function buildVault(root, v) {
