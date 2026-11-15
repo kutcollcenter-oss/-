@@ -322,6 +322,73 @@
       rib.rotation.x = Math.PI / 2; rib.scale.y = h / r; rib.position.set(cx, y, 0.7); root.add(rib);
     }
   }
+  // Многоуровневый паркинг по АР: 4 надземных уровня (0 / 3,6 / 7,2 / 10,8), кровля 14,4, белая рамка до 16,4.
+  // С юга — башня с вертикальной надписью PARKING и низкий въезд в подземный уровень −3,6;
+  // 1-й этаж — витрины магазинов; выше — тёмные металлические пояса с открытыми проёмами;
+  // с севера (оси З–К, 15 м) — открытая рампа: видны наклонные плиты между уровнями.
+  function texParkingSign() {
+    return canvasTex(256, 640, (g, W, H) => {
+      g.fillStyle = '#3a3e44'; g.fillRect(0, 0, W, H);
+      g.fillStyle = 'rgba(255,255,255,.05)';
+      for (let y = 4; y < H; y += 8) for (let x = (y / 8) % 2 ? 4 : 0; x < W; x += 8) g.fillRect(x, y, 2, 2); // перфорация
+      g.fillStyle = '#f4f4f0'; g.font = 'bold 74px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle';
+      'PARKING'.split('').forEach((ch, i) => g.fillText(ch, W / 2, 70 + i * 80));
+    });
+  }
+  function buildParkadeAR(root, v, p, pick) {
+    const [X0, Y0, X1, Y1] = v.box, L = Y1 - Y0, LV = [0, 3.6, 7.2, 10.8], ROOF = 14.4, TOP = 16.4;
+    const side = THREE.DoubleSide;
+    const M = (c) => new THREE.MeshLambertMaterial({ color: c, side });
+    const panel = M(0x3b3f45), inner = M(0x16191c), concrete = M(0x8e9195), col = M(0x55595f), frame = M(0xefeeea), slabM = M(0x9a9da1), edge = M(0xd9d9d4);
+    const glass = new THREE.MeshLambertMaterial({ color: 0x86a9cf, side });
+    const label = v.name || 'Многоуровневый паркинг';
+    const add = (m) => { m.userData = { pid: p.id, podium: true, label }; root.add(m); pick.push(m); return m; };
+    const B = (x0, y0, z0, x1, y1, z1, m) => add(boxMesh(x0, y0, z0, x1, y1, z1, m));
+    const tower = 7.25, rampL = 15, brand = 8.4;               // зоны вдоль длины (от южного торца)
+    const yT = Y0 + tower, yR = Y1 - rampL, yBr = yR - brand;
+    B(X0 + 0.6, Y0 + 0.6, 0, X1 - 0.6, Y1 - 0.6, ROOF, inner);  // тёмное нутро за проёмами
+    // витрины 1-го этажа и стойки между ними
+    for (const x of [X0, X1]) {
+      const sx = x === X0 ? 0.12 : -0.12;
+      B(Math.min(x, x + sx), yT, 0.15, Math.max(x, x + sx), yBr, 3.3, glass);
+      for (let y = yT; y <= yBr + 0.01; y += 2.1) B(Math.min(x, x + sx * 2), y - 0.06, 0.15, Math.max(x, x + sx * 2), y + 0.06, 3.3, col);
+    }
+    // пояса перекрытий (металлические панели) на уровнях 3,6 / 7,2 / 10,8 — в зоне витрин
+    for (const z of LV.slice(1)) {
+      B(X0 - 0.1, yT, z - 0.35, X0 + 0.25, yBr, z + 1.05, panel);
+      B(X1 - 0.25, yT, z - 0.35, X1 + 0.1, yBr, z + 1.05, panel);
+    }
+    B(X0 - 0.1, yT, 3.25, X0 + 0.25, yBr, 3.6, panel); B(X1 - 0.25, yT, 3.25, X1 + 0.1, yBr, 3.6, panel);
+    // колонны по осям (шаг 8,4 м)
+    for (let y = yT; y <= yR + 0.01; y += 8.4) for (const x of [X0, X1 - 0.5]) B(x, y - 0.25, 0, x + 0.5, y + 0.25, ROOF, col);
+    // глухая панель (оси Ж–З) во всю высоту
+    for (const x of [X0 - 0.15, X1 - 0.15]) B(x, yBr, 0, x + 0.3, yR, ROOF, panel);
+    // открытая рампа: наклонные плиты между уровнями, светлые торцы плит
+    for (const z of LV) {
+      const a = [X0 + 0.4, yR + 0.4, z + 0.05], b = [X1 - 0.4, yR + 0.4, z + 0.05], c = [X1 - 0.4, Y1 - 0.4, z + 3.6], d = [X0 + 0.4, Y1 - 0.4, z + 3.6];
+      add(new THREE.Mesh(quad(a, b, c, d), slabM));
+      for (const x of [X0 + 0.3, X1 - 0.3]) add(new THREE.Mesh(quad([x, yR + 0.4, z - 0.3], [x, Y1 - 0.4, z + 3.3], [x, Y1 - 0.4, z + 3.6], [x, yR + 0.4, z + 0.05]), edge));
+    }
+    for (const y of [yR, Y1 - 0.6]) for (const x of [X0, X1 - 0.6]) B(x, y, 0, x + 0.6, y + 0.6, ROOF, col);
+    B(X0, Y1 - 0.4, ROOF - 1.2, X1, Y1, ROOF, panel);
+    // южная башня с надписью PARKING
+    B(X0, Y0, 0, X1, yT, TOP, panel);
+    const sign = new THREE.MeshLambertMaterial({ map: texParkingSign(), side });
+    const signPlane = (w, h, x, y, rz) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), sign); m.rotation.x = Math.PI / 2; m.rotation.y = rz; m.position.set(x, y, 0.6 + h / 2); return add(m); };
+    signPlane(tower - 1.6, TOP - 2.4, X0 - 0.03, Y0 + tower / 2, -Math.PI / 2);
+    signPlane(tower - 1.6, TOP - 2.4, X1 + 0.03, Y0 + tower / 2, Math.PI / 2);
+    // белая рамка: верхний пояс по периметру и вертикали по углам башни
+    B(X0 - 0.3, Y0 - 0.3, ROOF, X1 + 0.3, Y0 + 0.3, TOP, frame); B(X0 - 0.3, Y1 - 0.3, ROOF, X1 + 0.3, Y1 + 0.3, TOP, frame);
+    B(X0 - 0.3, Y0, ROOF, X0 + 0.3, Y1, TOP, frame); B(X1 - 0.3, Y0, ROOF, X1 + 0.3, Y1, TOP, frame);
+    for (const x of [X0 - 0.3, X1 - 0.5]) B(x, Y0 - 0.3, 0, x + 0.8, Y0 + 0.5, TOP, frame);
+    add(flat([[X0, Y0], [X1, Y0], [X1, Y1], [X0, Y1]], TOP - 0.6, slabM));
+    // въезд в подземный уровень −3,6: низкий объём у южного торца, тёмные ворота
+    const a0 = X0 + 0.5, a1 = X0 + 7.5;
+    B(a0, Y0 - 7, 0, a1, Y0, 3.15, panel);
+    B(a0 + 1, Y0 - 7.05, 0, a1 - 1, Y0 - 6.95, 2.6, M(0x1d2024));
+    B(a0, Y0 - 7.2, 3.15, a1, Y0, 3.4, frame);
+  }
+
   // Ряды парковочных мест: разметка + машины
   function buildParking(root, rows, seed) {
     if (!rows.length) return;
@@ -586,6 +653,7 @@
 
     // Объёмы стилобата / коммерции / детсада
     for (const v of p.volumes || []) {
+      if (v.kind === 'parkadeAR') { buildParkadeAR(root, v, p, pick); continue; }
       const mat = v.tex === 'kinder' ? kinderMat : v.tex === 'parkade' ? parkadeMat : v.tex === 'entrance' ? entranceMat : shopMat;
       // у подъезда одна дверь на сторону: текстура ~на всю стену (стороны ~7 м)
       const w = new THREE.Mesh(v.tex === 'entrance' ? wallGeometry(v.pts, v.base, v.top, 7.2, v.top - v.base, v.base) : wallGeometry(v.pts, v.base, v.top, BAY * 2 * 4 / 2, v.floorH * 2, v.base), mat);
