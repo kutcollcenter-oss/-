@@ -81,7 +81,14 @@
     map.addSource('y-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: PROJECTS.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring(p, p.plot)] } })) } });
     map.addLayer({ id: 'y-plots', type: 'fill', source: 'y-plots', paint: { 'fill-color': '#d9d4ca', 'fill-opacity': 0.9 } });
     // формы блоков — по контурам с планировок (выступы, ниши, крылья)
-    for (const p of PROJECTS) for (const b of p.blocks) if (b.plan.outline) { boxOf(b); b.fp = planToLocal(p, b, b.plan.outline); }
+    for (const p of PROJECTS) for (const b of p.blocks) {
+      if (b.plan.outlineM) { // контур в метрах по АР: пятно блока получает точные размеры по осям, центр — с генплана
+        const bb = boxOf(b), C = [(bb.X0 + bb.X1) / 2, (bb.Y0 + bb.Y1) / 2], up = planUp(p, b), [L, S] = b.plan.axesM;
+        const W = up % 180 ? S : L, H = up % 180 ? L : S;
+        b.planUp = up; b.box0 = { X0: C[0] - W / 2, X1: C[0] + W / 2, Y0: C[1] - H / 2, Y1: C[1] + H / 2 };
+        b.fp = planMToLocal(p, b, b.plan.outlineM);
+      } else if (b.plan.outline) { boxOf(b); b.fp = planToLocal(p, b, b.plan.outline); }
+    }
     engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
@@ -231,6 +238,13 @@
       const u = (x - px0) / (px1 - px0) - 0.5, t = 0.5 - (y - py0) / (py1 - py0);
       return [C[0] + 2 * hR * u * Rv[0] + 2 * hU * t * Uv[0], C[1] + 2 * hR * u * Rv[1] + 2 * hU * t * Uv[1]];
     });
+  }
+  // Точки в метрах по осям АР (x от первой оси, y вниз от верхней) → метры участка
+  function planMToLocal(p, b, pts) {
+    const [L, S] = b.plan.axesM, bb = boxOf(b), W = bb.X1 - bb.X0, H = bb.Y1 - bb.Y0, C = [(bb.X0 + bb.X1) / 2, (bb.Y0 + bb.Y1) / 2];
+    const th = planUp(p, b) / DEG, Rv = [Math.cos(th), -Math.sin(th)], Uv = [Math.sin(th), Math.cos(th)];
+    const hR = (Math.abs(Rv[0]) * W + Math.abs(Rv[1]) * H) / 2, hU = (Math.abs(Uv[0]) * W + Math.abs(Uv[1]) * H) / 2;
+    return pts.map(([x, y]) => { const u = x / L - 0.5, t = 0.5 - y / S; return [C[0] + 2 * hR * u * Rv[0] + 2 * hU * t * Uv[0], C[1] + 2 * hR * u * Rv[1] + 2 * hU * t * Uv[1]]; });
   }
   // Точки, которые должны быть видны с камеры: квартира, этаж или весь блок
   function focusTargets(p, b, f, a) {
@@ -651,6 +665,9 @@
       <div class="pv-zoom"><button data-z="in" aria-label="Приблизить">+</button><button data-z="out" aria-label="Отдалить">−</button><button data-z="fit" aria-label="Весь план">⤢</button></div>`;
     document.body.append(el);
     const stage = el.querySelector('.pv-stage'), plan = el.querySelector('.pv-plan');
+    // план начинается под шапкой, чтобы шапка не закрывала его верх
+    const fitTop = () => { stage.style.top = (el.querySelector('.pv-top').offsetHeight + 20) + 'px'; };
+    fitTop();
     let s = 1, x = 0, y = 0, fit = 1;
     const apply = () => { plan.style.transform = `translate(${x}px,${y}px) scale(${s})`; };
     const clamp = () => { // не даём увести план за экран
@@ -658,7 +675,7 @@
       x = w <= W ? (W - w) / 2 : Math.min(0, Math.max(W - w, x));
       y = h <= H ? (H - h) / 2 : Math.min(0, Math.max(H - h, y));
     };
-    const doFit = () => { fit = Math.min(stage.clientWidth / pl.w, stage.clientHeight / pl.h) * 0.96; s = fit; clamp(); apply(); };
+    const doFit = () => { fitTop(); fit = Math.min(stage.clientWidth / pl.w, stage.clientHeight / pl.h) * 0.96; s = fit; clamp(); apply(); };
     const zoomAt = (k, cx, cy) => { const ns = Math.max(fit, Math.min(fit * 8, s * k)); x = cx - (cx - x) * ns / s; y = cy - (cy - y) * ns / s; s = ns; clamp(); apply(); };
     doFit();
     const rect = () => stage.getBoundingClientRect();

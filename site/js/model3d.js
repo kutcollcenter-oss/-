@@ -622,7 +622,7 @@
       // коммерческий этаж в пятне блока
       if (LV(p, b, 'residentialBase') > p.blockBase) {
         const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, LV(p, b, 'residentialBase'), BAY * 8, (LV(p, b, 'residentialBase') - p.blockBase) * 2, p.blockBase), shopMat);
-        w.userData = { pid: p.id, block: b.id, label: 'Коммерческие помещения' }; bg.add(w); pick.push(w);
+        w.userData = { pid: p.id, block: b.id, label: p.podiumLabel || 'Коммерческие помещения' }; bg.add(w); pick.push(w);
       }
       // Фасад по кусочкам ~3 м: окна только там, где за стеной квартира (по плану этажа),
       // глухая стена — у лестниц/лифтов и на сторонах, которые на плане без окон (plan.blank)
@@ -859,7 +859,7 @@
       if (ud.podium) return { project: p, podium: true, label: ud.label };
       const b = p.blocks.find((x) => x.id === ud.block);
       const z = L.built.root.worldToLocal(hit.point.clone()).z;
-      if (z < LV(p, b, 'residentialBase') - 0.01) return { project: p, block: b, podium: true, label: ud.label || 'Коммерческие помещения' };
+      if (z < LV(p, b, 'residentialBase') - 0.01) return { project: p, block: b, podium: true, label: ud.label || p.podiumLabel || 'Коммерческие помещения' };
       const f = Math.min(b.floors, Math.max(LV(p, b, 'firstResidentialFloor'), LV(p, b, 'firstResidentialFloor') + Math.floor((z - LV(p, b, 'residentialBase')) / LV(p, b, 'floorHeight'))));
       return { project: p, block: b, floor: f };
     }
