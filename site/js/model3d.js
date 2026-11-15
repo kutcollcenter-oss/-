@@ -664,11 +664,23 @@
       root.add(roof); pick.push(roof);
       root.add(new THREE.Mesh(wallGeometry(offsetPoly(v.pts, 0.15), v.top - 0.3, v.top + 0.9, 1, 1), white)); // парапет
     }
-    for (const s of p.surfaces || []) root.add(flat(s.pts, s.z, lambert({ color: s.color })));
+    for (const s of p.surfaces || []) {
+      if (!s.holes) { root.add(flat(s.pts, s.z, lambert({ color: s.color }))); continue; }
+      const sh = shapeOf(s.pts); // вырезы — например, над пандусом в подземный паркинг
+      for (const h of s.holes) sh.holes.push(new THREE.Path(ccw(h).reverse().map(([x, y]) => new THREE.Vector2(x, y))));
+      const m = new THREE.Mesh(new THREE.ShapeGeometry(sh), lambert({ color: s.color })); m.position.z = s.z; root.add(m);
+    }
     for (const o of p.ovals || []) root.add(oval(o.c, o.rx, o.ry, o.z, lambert({ color: o.color })));
     for (const r of p.ramps || []) buildRamp(root, r, pick, p);
     for (const v of p.vaults || []) { const n = root.children.length; buildVault(root, v); labelNew(n, 'Въезд в подземный паркинг'); }
-    for (const d of p.downRamps || []) { const n = root.children.length; buildDownRamp(root, d); labelNew(n, 'Въезд в подземный паркинг −1/−2'); }
+    for (const d of p.downRamps || []) {
+      const n = root.children.length;
+      if (d.axis === 'x') { // пандус вдоль x: строим как вдоль y и поворачиваем на −90°
+        const g = new THREE.Group(); g.rotation.z = -Math.PI / 2; root.add(g);
+        buildDownRamp(g, { ...d, x0: -d.y1, x1: -d.y0, yIn: d.xIn, yOut: d.xOut });
+      } else buildDownRamp(root, d);
+      labelNew(n, d.label || 'Въезд в подземный паркинг −1/−2');
+    }
     buildParking(root, p.parking || [], seed);
     buildYard(root, p.yard, seed);
 
