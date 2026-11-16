@@ -93,6 +93,7 @@
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
     addMarkers();
+    if (isMobile() && !location.hash.replace(/^#\/?/, '')) fitAllMobile(0); // главная с телефона: все объекты над шторкой
     setupInteractions();
     route();
     renderCmpBar();
@@ -141,7 +142,27 @@
       mk._project = p; markers.push(mk);
     }
     updateMarkerVisibility();
+    declutterMarkers();
   }
+  // Плашки близких объектов не перекрывают друг друга: у мешающей удлиняем «ножку», и плашка встаёт выше
+  function declutterMarkers() {
+    const items = markers.filter((m) => m.getElement().style.display !== 'none').map((m) => {
+      const el = m.getElement(), pill = el.querySelector('.pill'), pt = map.project(m.getLngLat());
+      return { el, w: pill.offsetWidth, h: pill.offsetHeight, x: pt.x, y: pt.y };
+    }).sort((a, b) => b.y - a.y); // сначала нижние (ближние) — они остаются на месте
+    const placed = [];
+    for (const it of items) {
+      let lift = 0;
+      for (let k = 0; k < 4; k++) {
+        const r = { l: it.x - it.w / 2 - 4, r: it.x + it.w / 2 + 4, b: it.y - 26 - lift, t: it.y - 26 - lift - it.h };
+        if (!placed.some((q) => r.l < q.r && r.r > q.l && r.t < q.b && r.b > q.t)) { placed.push(r); break; }
+        lift += it.h + 6;
+      }
+      it.el.querySelector('.stem').style.height = (14 + lift) + 'px';
+    }
+  }
+  let declutterRaf = 0;
+  map.on('move', () => { if (!declutterRaf) declutterRaf = requestAnimationFrame(() => { declutterRaf = 0; declutterMarkers(); }); });
   function updateMarkerVisibility() {
     const z = map.getZoom();
     markers.forEach((m) => { m.getElement().style.display = (z > 15.5 && state.project && state.project.id === m._project.id) ? 'none' : ''; });
@@ -305,7 +326,21 @@
     const pad = camPad();
     map.fitBounds(b, { padding: { top: pad.top + 90, bottom: pad.bottom + 90, left: pad.left + 90, right: pad.right + 90 }, maxZoom: 15, pitch: 50, bearing: -12, duration: 1800 });
   }
-  function flyCity() { map.flyTo({ center: CFG.city.center, zoom: CFG.city.zoom, pitch: 45, bearing: -12, duration: 1800, padding: camPad() }); }
+  function flyCity() {
+    if (isMobile()) return fitAllMobile(1800);
+    map.flyTo({ center: CFG.city.center, zoom: CFG.city.zoom, pitch: 45, bearing: -12, duration: 1800, padding: camPad() });
+  }
+  // На телефоне шторка закрывает низ экрана — все объекты (с плашками над точкой) умещаем в видимую верхнюю часть
+  function fitAllMobile(duration) {
+    const list = visibleProjects(); if (!list.length) return;
+    const b = new maplibregl.LngLatBounds(); list.forEach((p) => b.extend(p.marker));
+    const sheet = panel.getBoundingClientRect().height || innerHeight * 0.52;
+    const top = ($('.topbar')?.getBoundingClientRect().bottom || 70) + 80 + (list.length > 1 ? 56 : 0); // плашка над точкой (+ запас, если её приподнимет declutter)
+    const side = Math.min(88, innerWidth * 0.24);                          // половина плашки по центру точки
+    const cam = map.cameraForBounds(b, { padding: { top, bottom: sheet + 24, left: side, right: side }, bearing: -12, maxZoom: 14.5 });
+    if (!cam) return;
+    map[duration ? 'flyTo' : 'jumpTo']({ ...cam, zoom: cam.zoom - 0.15, pitch: 40, bearing: -12, ...(duration ? { duration, essential: true } : {}) });
+  }
 
   /* ---------- Роутинг ---------- */
   function go(hash) { if (location.hash === hash) route(); else location.hash = hash; }
