@@ -1339,12 +1339,31 @@
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) closeModal(); });
 
   /* ---------- Мобильная шторка ---------- */
-  function setSheet(cls) { panel.classList.remove('collapsed', 'expanded'); if (cls) panel.classList.add(cls); }
-  $('#panelGrip').addEventListener('click', () => {
-    if (panel.classList.contains('collapsed')) setSheet('');
-    else if (panel.classList.contains('expanded')) setSheet('collapsed');
-    else setSheet('expanded');
+  // Тянется пальцем за ручку и остаётся там, где отпустили; ниже свёрнутой (120 px) и выше 88% экрана не уходит.
+  // Короткий тап без движения — как раньше: переключает свёрнуто → середина → развёрнуто.
+  function setSheet(cls) { panel.style.height = ''; panel.classList.remove('collapsed', 'expanded', 'dragging'); if (cls) panel.classList.add(cls); }
+  const grip = $('#panelGrip'), SHEET_MIN = 120, sheetMax = () => Math.round(innerHeight * 0.88);
+  let drag = null;
+  grip.addEventListener('pointerdown', (e) => {
+    drag = { y: e.clientY, h: panel.getBoundingClientRect().height, moved: false };
+    grip.setPointerCapture(e.pointerId);
   });
+  grip.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dy = e.clientY - drag.y;
+    if (!drag.moved && Math.abs(dy) < 6) return;
+    if (!drag.moved) { drag.moved = true; panel.classList.remove('collapsed', 'expanded'); panel.classList.add('dragging'); }
+    panel.style.height = Math.max(SHEET_MIN, Math.min(sheetMax(), drag.h - dy)) + 'px';
+  });
+  const endDrag = () => {
+    if (!drag) return;
+    const moved = drag.moved; drag = null; panel.classList.remove('dragging');
+    if (moved) return; // оставляем высоту, где отпустили
+    const h = panel.getBoundingClientRect().height;
+    setSheet(h <= SHEET_MIN + 10 ? '' : h >= sheetMax() - 10 ? 'collapsed' : 'expanded');
+  };
+  grip.addEventListener('pointerup', endDrag);
+  grip.addEventListener('pointercancel', () => { if (drag) { drag.moved = true; endDrag(); } });
   map.on('dragstart', () => { if (isMobile()) setSheet('collapsed'); });
 
   setTimeout(() => { if (!panelBody.innerHTML) route(); }, 4000);

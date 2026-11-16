@@ -178,8 +178,9 @@ h3 { font-size: 15px; font-weight: 700; }
   .panel { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 52vh; border-radius: 20px 20px 0 0; transition: height .25s; }
   .panel.collapsed { height: 120px; }
   .panel.expanded { height: 88vh; }
-  .panel-grip { display: block; height: 22px; flex: none; cursor: grab; position: relative; }
-  .panel-grip::after { content: ''; position: absolute; left: 50%; top: 8px; width: 42px; height: 5px; border-radius: 3px; background: #d6d2cc; transform: translateX(-50%); }
+  .panel.dragging { transition: none; }
+  .panel-grip { display: block; height: 30px; margin-bottom: -6px; flex: none; cursor: grab; position: relative; touch-action: none; }
+  .panel-grip::after { content: ''; position: absolute; left: 50%; top: 11px; width: 42px; height: 5px; border-radius: 3px; background: #d6d2cc; transform: translateX(-50%); }
   .panel-body { padding: 4px 16px 24px; }
   .card img { height: 150px; }
   .maplibregl-ctrl-top-right { top: 60px; }
