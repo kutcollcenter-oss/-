@@ -563,18 +563,22 @@
   }
 
   function galleryHtml(p) {
-    return `<div class="gallery" id="gal"><img src="${p.renders[0]}" alt="${esc(p.name)}">
+    // лента со «щелчком» на каждом фото: листается пальцем (свайп) и стрелками
+    return `<div class="gallery" id="gal"><div class="gal-track">${p.renders.map((src, i) => `<img src="${src}" alt="${esc(p.name)} — фото ${i + 1}"${i ? ' loading="lazy"' : ''} draggable="false">`).join('')}</div>
       <button class="nav prev" aria-label="Назад">‹</button><button class="nav next" aria-label="Вперёд">›</button>
       <div class="dots">${p.renders.map((_, i) => `<button class="${i ? '' : 'on'}" data-i="${i}" aria-label="Фото ${i + 1}"></button>`).join('')}</div></div>`;
   }
   function bindGallery(p) {
-    const g = $('#gal'); if (!g) return; let i = 0;
-    const show = (k) => { i = (k + p.renders.length) % p.renders.length; g.querySelector('img').src = p.renders[i]; g.querySelectorAll('.dots button').forEach((d, j) => d.classList.toggle('on', j === i)); };
-    g.querySelector('.prev').onclick = () => show(i - 1);
-    g.querySelector('.next').onclick = () => show(i + 1);
+    const g = $('#gal'); if (!g) return;
+    const tr = g.querySelector('.gal-track'), n = p.renders.length;
+    const cur = () => Math.round(tr.scrollLeft / Math.max(1, tr.clientWidth));
+    const sync = () => { const i = cur(); g.querySelectorAll('.dots button').forEach((d, j) => d.classList.toggle('on', j === i)); };
+    const show = (k) => { tr.scrollTo({ left: ((k + n) % n) * tr.clientWidth, behavior: 'smooth' }); setTimeout(sync, 500); };
+    tr.addEventListener('scroll', sync, { passive: true });
+    g.querySelector('.prev').onclick = () => show(cur() - 1);
+    g.querySelector('.next').onclick = () => show(cur() + 1);
     g.querySelectorAll('.dots button').forEach((d) => d.onclick = () => show(+d.dataset.i));
-    g.querySelector('img').onclick = () => openModal(`<img src="${p.renders[i]}" style="width:100%;border-radius:12px;display:block">`, true);
-    p.renders.forEach((src) => { const im = new Image(); im.src = src; });
+    tr.onclick = () => openModal(`<img src="${p.renders[cur()]}" style="width:100%;border-radius:12px;display:block">`, true);
   }
 
   function renderProject(p) {
