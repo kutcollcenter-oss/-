@@ -56,8 +56,11 @@
     return canvasTex(1024, 1024, (g, W, H) => {
       const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
       g.fillStyle = '#efeeea'; g.fillRect(0, 0, W, H);
+      // чёрные вставки идут вертикальными полосами через 2–4 этажа (как на рендерах), а не россыпью
+      const ins = new Set();
+      for (let b = 0; b < ATLAS_BAYS; b++) if (r() < 0.55) { const run = 2 + Math.floor(r() * 3), f0 = Math.floor(r() * (ATLAS_FLOORS - run + 1)); for (let f = f0; f < f0 + run; f++) ins.add(f * ATLAS_BAYS + b); }
       for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
-        const x = b * bw, y = f * fh, t = r();
+        const x = b * bw, y = f * fh, t = ins.has(f * ATLAS_BAYS + b) ? 0 : 0.2 + r() * 0.8;
         if (t < 0.16) { // чёрная вставка во всю ячейку
           g.fillStyle = '#26282c'; g.fillRect(x + 6, y, bw - 12, fh);
           if (r() < 0.6) { r() < 0.3 ? litGlass(g, x + bw * 0.3, y + fh * 0.16, bw * 0.4, fh * 0.66, r) : darkGlass(g, x + bw * 0.3, y + fh * 0.16, bw * 0.4, fh * 0.66, r); }
@@ -87,21 +90,67 @@
       }
     });
   }
-  // Алтай Плюс: светло-серый керамогранит, узкие окна в белых рамах, тёмные вертикальные вставки
+  // Алтай Плюс (по рендерам): светлые панели, в каждой оси два высоких тёмных окна в чёрной раме
+  // с французским балкончиком (тёмный короб со светлой кромкой), между осями — тонкие вертикальные швы,
+  // местами тёплый свет за шторами
   function texPlus(seed) {
     return canvasTex(1024, 1024, (g, W, H) => {
       const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
-      g.fillStyle = '#d9d9d6'; g.fillRect(0, 0, W, H);
+      const wall = g.createLinearGradient(0, 0, W, 0); wall.addColorStop(0, '#e9e8e5'); wall.addColorStop(0.5, '#e3e2df'); wall.addColorStop(1, '#e9e8e5');
+      g.fillStyle = wall; g.fillRect(0, 0, W, H);
       for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
         const x = b * bw, y = f * fh;
-        if (b === 3) { g.fillStyle = '#4b4f55'; g.fillRect(x + bw * 0.1, y, bw * 0.8, fh); }
-        for (const wx of [0.14, 0.56]) {
-          const X = x + bw * wx, Y = y + fh * 0.1, w = bw * 0.3, h = fh * 0.78;
-          g.fillStyle = '#fbfbf9'; g.fillRect(X - 6, Y - 6, w + 12, h + 12);
-          if (r() < 0.15) litGlass(g, X, Y, w, h, r); else darkGlass(g, X, Y, w, h, r);
-          g.fillStyle = '#e9e9e5'; g.fillRect(X, Y + h * 0.62, w, 5);
+        g.fillStyle = 'rgba(120,118,112,.35)'; g.fillRect(x, y, 3, fh);                         // шов между осями
+        for (const wx of [0.17, 0.59]) {
+          const X = x + bw * wx, Y = y + fh * 0.14, w = bw * 0.24, h = fh * 0.7;
+          g.fillStyle = '#1f2226'; g.fillRect(X - 4, Y - 4, w + 8, h + 6);                   // чёрная рама
+          if (r() < 0.22) litGlass(g, X, Y, w, h, r);
+          else { // в стекле отражается небо: сверху светлее, книзу темнее
+            const gr = g.createLinearGradient(X, Y, X + w * 0.4, Y + h);
+            const k = r() * 18; gr.addColorStop(0, `rgb(${138 + k},${154 + k},${172 + k})`); gr.addColorStop(0.5, `rgb(${82 + k / 2},${93 + k / 2},${108 + k / 2})`); gr.addColorStop(1, '#3a4048');
+            g.fillStyle = gr; g.fillRect(X, Y, w, h);
+          }
+          g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(X + w * 0.08, Y + 4, w * 0.18, h * 0.55);   // блик
+          g.fillStyle = '#1f2226'; g.fillRect(X + w / 2 - 2, Y, 4, h);                                     // импост
+          // французский балкончик: тёмный короб низа окна и светлая кромка плиты
+          const by = Y + h * 0.7;
+          g.fillStyle = '#2b2e33'; g.fillRect(X - 9, by, w + 18, h * 0.3 + 6);
+          g.fillStyle = '#c9c6bf'; g.fillRect(X - 9, by + h * 0.3 + 2, w + 18, 6);
+          g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(X - 9, by + h * 0.3 + 8, w + 18, 6);               // тень под плитой
         }
-        g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(x, y + fh - 3, bw, 3);
+      }
+    });
+  }
+  // Первый (офисный) этаж Алтай Плюс: графитовая облицовка, тёмные витражи с тёплым светом
+  function texShopPlus(seed) {
+    return canvasTex(1024, 512, (g, W, H) => {
+      const r = rng(seed), bw = W / 4, fh = H / 2;
+      g.fillStyle = '#3a3d42'; g.fillRect(0, 0, W, H);
+      for (let f = 0; f < 2; f++) for (let b = 0; b < 4; b++) {
+        const x = b * bw, y = f * fh;
+        if (r() < 0.4) litGlass(g, x + 22, y + fh * 0.22, bw - 44, fh * 0.72, r); else darkGlass(g, x + 22, y + fh * 0.22, bw - 44, fh * 0.72, r);
+        g.fillStyle = '#1d2024'; g.fillRect(x + bw / 2 - 3, y + fh * 0.22, 6, fh * 0.72);
+        g.fillStyle = 'rgba(255,255,255,.08)'; g.fillRect(x, y + fh * 0.12, bw, 6);
+      }
+    });
+  }
+  // Глухие торцы. Ordo: белая стена с крупными светло-серыми панелями и редкими узкими окнами-щелями;
+  // Плюс: графитовые панели с тонкими горизонтальными швами. Атлас — 4 оси × 8 этажей, как у фасада.
+  function texBlank(style, seed) {
+    return canvasTex(1024, 1024, (g, W, H) => {
+      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
+      if (style === 'plus') {
+        g.fillStyle = '#4a4d52'; g.fillRect(0, 0, W, H);
+        for (let y = 0; y < H; y += fh / 5) { g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(0, y, W, 2); g.fillStyle = 'rgba(255,255,255,.05)'; g.fillRect(0, y + 2, W, 2); }
+        for (let x = 0; x < W; x += bw / 2) { g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(x, 0, 2, H); }
+        return;
+      }
+      g.fillStyle = '#f0efeb'; g.fillRect(0, 0, W, H);
+      for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
+        const x = b * bw, y = f * fh;
+        if (r() < 0.38) { g.fillStyle = r() < 0.5 ? '#d6d6d2' : '#c9c9c5'; g.fillRect(x + 8, y + 8, bw - 16, fh - 16); }
+        g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(x, y, bw, 3); g.fillRect(x, y, 3, fh);
+        if (b === 1 && r() < 0.7) { g.fillStyle = '#2a2d32'; g.fillRect(x + bw * 0.42, y + fh * 0.18, bw * 0.16, fh * 0.64); } // окно-щель
       }
     });
   }
@@ -640,15 +689,16 @@
     root.rotation.z = (p.rotation || 0) * Math.PI / 180;
     scene.add(root);
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.3));
-    const hemi = new THREE.HemisphereLight(0xe4eefa, 0x8e8676, 0.4); hemi.position.set(0, 0, 1); scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xfff0d8, 0.7); sun.position.set(-70, -110, 120); scene.add(sun);
+    // свет контрастнее: солнечная сторона тёплая и светлая, теневая — заметно темнее (как на рендерах)
+    scene.add(new THREE.AmbientLight(0xffffff, 0.36));
+    const hemi = new THREE.HemisphereLight(0xe4eefa, 0x8e8676, 0.44); hemi.position.set(0, 0, 1); scene.add(hemi);
+    const sun = new THREE.DirectionalLight(0xfff0d8, 0.8); sun.position.set(-70, -110, 120); scene.add(sun);
     const fill = new THREE.DirectionalLight(0xdbe6ff, 0.16); fill.position.set(90, 70, 40); scene.add(fill);
 
     const seed = [...p.id].reduce((s, c) => s * 31 + c.charCodeAt(0), 7);
     const facadeTex = p.style === 'gold' ? texGold(seed) : p.style === 'plus' ? texPlus(seed) : texOrdo(seed);
     const facadeMat = lambert({ map: facadeTex });
-    const shopMat = lambert({ map: texShop(seed + 1) });
+    const shopMat = lambert({ map: p.style === 'plus' ? texShopPlus(seed + 1) : texShop(seed + 1) });
     const kinderMat = lambert({ map: texKinder(seed + 2) });
     const parkadeMat = lambert({ map: texParkade() });
     const entranceMat = lambert({ map: texEntrance() });
@@ -656,7 +706,7 @@
     const rs = ROOF_STYLE[p.style] || ROOF_STYLE.plus;
     const roofMats = { roof: lambert({ map: texRoof(rs.roof, rs.seam) }), white: lambert({ color: 0xf4f3ef }), box: lambert({ color: rs.box }), cap: lambert({ color: rs.cap }), vent: lambert({ color: 0x3a3d42 }) };
     const darkMat = lambert({ color: 0x2a2f36 });
-    const blankMat = lambert({ color: p.blankColor || 0xe9e8e3 });
+    const blankMat = p.style === 'ordo' || p.style === 'plus' ? lambert({ map: texBlank(p.style, seed + 3) }) : lambert({ color: p.blankColor || 0xe9e8e3 });
     const pick = [];
     const labelNew = (from, label) => { for (const m of root.children.slice(from)) if (m.isMesh || m.isGroup) { m.traverse((x) => { if (x.isMesh) { x.userData = { pid: p.id, podium: true, label }; pick.push(x); } }); } };
 
@@ -718,7 +768,7 @@
       const walls = new THREE.Mesh(new THREE.BufferGeometry(), facadeMat);
       const blockPick = [walls], pieces = [];
       {
-        const pos = [], uv = [], idx = [], bpos = [];
+        const pos = [], uv = [], idx = [], bpos = [], buv = [];
         const v0 = 0, v1 = (top - LV(p, b, 'residentialBase')) / (LV(p, b, 'floorHeight') * ATLAS_FLOORS), uSize = BAY * ATLAS_BAYS;
         let u0 = 0;
         fp.forEach((a, i) => {
@@ -735,6 +785,7 @@
             const target = win ? pos : bpos, base = target.length / 3;
             target.push(A[0], A[1], LV(p, b, 'residentialBase'), B[0], B[1], LV(p, b, 'residentialBase'), B[0], B[1], top, A[0], A[1], top);
             if (win) { uv.push(ua, v0, ub, v0, ub, v1, ua, v1); idx.push(base, base + 1, base + 2, base, base + 2, base + 3); }
+            else buv.push(ua, v0, ub, v0, ub, v1, ua, v1);
           }
           u0 = Math.round((u0 + len / uSize) * 4) / 4;
         });
@@ -746,7 +797,7 @@
         if (bpos.length) {
           const bi = []; for (let q = 0; q < bpos.length / 3; q += 4) bi.push(q, q + 1, q + 2, q, q + 2, q + 3);
           const bg2 = new THREE.BufferGeometry();
-          bg2.setAttribute('position', new THREE.Float32BufferAttribute(bpos, 3)); bg2.setIndex(bi); bg2.computeVertexNormals();
+          bg2.setAttribute('position', new THREE.Float32BufferAttribute(bpos, 3)); bg2.setAttribute('uv', new THREE.Float32BufferAttribute(buv, 2)); bg2.setIndex(bi); bg2.computeVertexNormals();
           const bw = new THREE.Mesh(bg2, blankMat); bw.userData = { pid: p.id, block: b.id };
           bg.add(bw); pick.push(bw); blockPick.push(bw);
         }
