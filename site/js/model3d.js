@@ -96,28 +96,31 @@
   function texPlus(seed) {
     return canvasTex(1024, 1024, (g, W, H) => {
       const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
-      const wall = g.createLinearGradient(0, 0, W, 0); wall.addColorStop(0, '#e9e8e5'); wall.addColorStop(0.5, '#e3e2df'); wall.addColorStop(1, '#e9e8e5');
+      // по АР (лист «Фасад по осям 1-11», ведомость отделки): стены — жидкий травертин серых тонов
+      // (RAL 7004 / 7035), окна алюминиевые графитовые шириной 1800 мм, под каждым — металлическая
+      // корзина кондиционера 1800 × 735 (RAL 7024). Ось 3,2 м = 256 px, этаж 3,0 м = 128 px → 80 px/м
+      const wall = g.createLinearGradient(0, 0, W, 0); wall.addColorStop(0, '#d2d3d4'); wall.addColorStop(0.5, '#cbcccd'); wall.addColorStop(1, '#d2d3d4');
       g.fillStyle = wall; g.fillRect(0, 0, W, H);
+      // пропорции по листу фасада: окно ~1,45 м, корзина под ним, между корзиной и окном выше ~0,9 м стены
+      // по горизонтали ось 3,2 м = 256 px, по вертикали этаж 3,0 м = 128 px — масштабы разные
+      const PX = bw / 3.2, PY = fh / 3.0, ww = 1.8 * PX, wh = 1.45 * PY, bh = 0.6 * PY;
       for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
-        const x = b * bw, y = f * fh;
-        g.fillStyle = 'rgba(120,118,112,.35)'; g.fillRect(x, y, 3, fh);                         // шов между осями
-        for (const wx of [0.17, 0.59]) {
-          const X = x + bw * wx, Y = y + fh * 0.14, w = bw * 0.24, h = fh * 0.7;
-          g.fillStyle = '#1f2226'; g.fillRect(X - 4, Y - 4, w + 8, h + 6);                   // чёрная рама
-          if (r() < 0.22) litGlass(g, X, Y, w, h, r);
-          else { // в стекле отражается небо: сверху светлее, книзу темнее
-            const gr = g.createLinearGradient(X, Y, X + w * 0.4, Y + h);
-            const k = r() * 18; gr.addColorStop(0, `rgb(${138 + k},${154 + k},${172 + k})`); gr.addColorStop(0.5, `rgb(${82 + k / 2},${93 + k / 2},${108 + k / 2})`); gr.addColorStop(1, '#3a4048');
-            g.fillStyle = gr; g.fillRect(X, Y, w, h);
-          }
-          g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(X + w * 0.08, Y + 4, w * 0.18, h * 0.55);   // блик
-          g.fillStyle = '#1f2226'; g.fillRect(X + w / 2 - 2, Y, 4, h);                                     // импост
-          // французский балкончик: тёмный короб низа окна и светлая кромка плиты
-          const by = Y + h * 0.7;
-          g.fillStyle = '#2b2e33'; g.fillRect(X - 9, by, w + 18, h * 0.3 + 6);
-          g.fillStyle = '#c9c6bf'; g.fillRect(X - 9, by + h * 0.3 + 2, w + 18, 6);
-          g.fillStyle = 'rgba(0,0,0,.22)'; g.fillRect(X - 9, by + h * 0.3 + 8, w + 18, 6);               // тень под плитой
+        const x = b * bw, y = f * fh, X = x + (bw - ww) / 2, Y = y + 0.4 * PY;
+        g.fillStyle = 'rgba(0,0,0,.06)'; g.fillRect(x, y + fh - 2, bw, 2);                       // межэтажный шов
+        g.fillStyle = '#34373c'; g.fillRect(X - 4, Y - 4, ww + 8, wh + 8);                       // графитовая рама
+        if (r() < 0.22) litGlass(g, X, Y, ww, wh, r);
+        else { // в стекле отражается небо: сверху светлее, книзу темнее
+          const gr = g.createLinearGradient(X, Y, X + ww * 0.3, Y + wh);
+          const k = r() * 18; gr.addColorStop(0, `rgb(${130 + k},${146 + k},${164 + k})`); gr.addColorStop(0.55, `rgb(${78 + k / 2},${89 + k / 2},${104 + k / 2})`); gr.addColorStop(1, '#3a4048');
+          g.fillStyle = gr; g.fillRect(X, Y, ww, wh);
         }
+        g.fillStyle = 'rgba(255,255,255,.10)'; g.fillRect(X + ww * 0.06, Y + 4, ww * 0.12, wh * 0.6);  // блик
+        g.fillStyle = '#34373c'; for (const t of [1 / 3, 2 / 3]) g.fillRect(X + ww * t - 2, Y, 4, wh);  // импосты: три створки
+        // корзина кондиционера под окном: графитовые ламели
+        const BY = Y + wh + 0.04 * PY;
+        g.fillStyle = '#4a4d52'; g.fillRect(X, BY, ww, bh);
+        g.fillStyle = 'rgba(0,0,0,.35)'; for (let k = 1; k < 7; k++) g.fillRect(X + 3, BY + k * bh / 7, ww - 6, 2);
+        g.fillStyle = 'rgba(0,0,0,.16)'; g.fillRect(X, BY + bh, ww, 5);                              // тень под корзиной
       }
     });
   }
@@ -745,7 +748,7 @@
 
     // Жилые блоки
     const blockInfo = {};
-    const box = new THREE.BoxGeometry(1, 1, 1), finMat = lambert({ color: 0xf6f5f1 }), graphiteMat = lambert({ color: 0x45484d });
+    const box = new THREE.BoxGeometry(1, 1, 1), finMat = lambert({ color: 0xf6f5f1 });
     const instanced = (grp, list, mat) => {
       if (!list.length) return;
       const m = new THREE.InstancedMesh(box, mat, list.length);
@@ -757,7 +760,7 @@
       const top = api.floorBase(p, b.floors + 1, b);
       const fp = ccw(b.fp);
       const bg = new THREE.Group(); root.add(bg);
-      const fins = [], bands = [], darkFins = [];
+      const fins = [], bands = [];
       // коммерческий этаж в пятне блока
       if (LV(p, b, 'residentialBase') > p.blockBase) {
         const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, LV(p, b, 'residentialBase'), BAY * 8, (LV(p, b, 'residentialBase') - p.blockBase) * 2, p.blockBase), shopMat);
@@ -832,24 +835,21 @@
           }
         });
       } else if (p.style === 'plus') {
-        // Белые рамы-«порталы», как на рендерах: на каждой длинной грани — белые вертикали по краям
-        // и белый пояс по верху; короткие западающие участки между секциями — графитовые
+        // Белые полосы (RAL 9003 по ведомости отделки) по краям длинных граней и узкий пояс по верху.
+        // Полоса 0,5 м ложится в простенок у угла — окна 1,8 м в оси не закрывает.
+        // Короткие угловые участки (там окна квартир 74–75 м²) ничем не закрываем.
         const z0 = LV(p, b, 'residentialBase'), H = top - z0;
         fp.forEach((a, i) => {
           const c = fp[(i + 1) % fp.length];
-          const len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 0.5) return;
+          const len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 8) return;
           const dx = (c[0] - a[0]) / len, dy = (c[1] - a[1]) / len, nx = dy, ny = -dx, ang = Math.atan2(dy, dx);
           const at = (t, off) => [a[0] + dx * t + nx * off, a[1] + dy * t + ny * off];
-          if (len >= 8) {
-            const w = 1.1, d = 0.32;
-            for (const t of [w / 2, len - w / 2]) { const [x, y] = at(t, d / 2); fins.push({ x, y, z: z0 + H / 2 + 0.6, sx: w, sy: d, sz: H + 1.2, ang }); }
-            const [x, y] = at(len / 2, d / 2); bands.push({ x, y, z: top - 0.2, sx: len, sy: d, sz: 1.6, ang });
-          } else if (len >= 2.5 && len < 6) {
-            const [x, y] = at(len / 2, 0.06); darkFins.push({ x, y, z: z0 + H / 2, sx: len, sy: 0.12, sz: H, ang });
-          }
+          const w = 0.5, d = 0.25;
+          for (const t of [w / 2, len - w / 2]) { const [x, y] = at(t, d / 2); fins.push({ x, y, z: z0 + H / 2 + 0.5, sx: w, sy: d, sz: H + 1.0, ang }); }
+          const [x, y] = at(len / 2, d / 2); bands.push({ x, y, z: top + 0.1, sx: len, sy: d, sz: 0.8, ang });
         });
       }
-      instanced(bg, fins, finMat); instanced(bg, bands, finMat); instanced(bg, darkFins, graphiteMat);
+      instanced(bg, fins, finMat); instanced(bg, bands, finMat);
       blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick, pieces };
     }
 
