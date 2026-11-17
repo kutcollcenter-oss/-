@@ -26,52 +26,78 @@
     gr.addColorStop(1, `rgb(${34},${41},${52})`);
     g.fillStyle = gr; g.fillRect(x, y, w, h);
   }
-  // Altay Gold (как на рендерах V7): витражи в пол, белые вертикальные рамы, тёплый свет в части окон
+  // ---- Фасады по листам АР (ведомость наружной отделки). Атлас: 4 оси × 8 этажей, ось 3,2 м = 256 px, этаж = 128 px ----
+  // Окно в раме по центру cx: o.w × o.h в метрах, o.top — отступ верха окна от потолка этажа; o.basket — корзина кондиционера под окном
+  function winUnit(g, r, cx, y, PX, PY, o) {
+    const ww = o.w * PX, wh = o.h * PY, X = cx - ww / 2, Y = y + o.top * PY;
+    g.fillStyle = o.frame; g.fillRect(X - 4, Y - 4, ww + 8, wh + 8);
+    if (r() < (o.lit == null ? 0.2 : o.lit)) litGlass(g, X, Y, ww, wh, r);
+    else {
+      const k = r() * 16, [R, G, B] = o.glass, gr = g.createLinearGradient(X, Y, X + ww * 0.3, Y + wh);
+      gr.addColorStop(0, `rgb(${R + k},${G + k},${B + k})`); gr.addColorStop(1, `rgb(${R * 0.55 | 0},${G * 0.55 | 0},${B * 0.6 | 0})`);
+      g.fillStyle = gr; g.fillRect(X, Y, ww, wh);
+    }
+    g.fillStyle = 'rgba(255,255,255,.12)'; g.fillRect(X + ww * 0.06, Y + 3, ww * 0.1, wh * 0.6);
+    g.fillStyle = o.frame; const n = Math.max(2, Math.round(o.w / 0.65)); for (let t = 1; t < n; t++) g.fillRect(X + ww * t / n - 2, Y, 4, wh);
+    if (o.basket) {
+      const bw = o.basket[0] * PX, bh = o.basket[1] * PY, BY = Y + wh + 0.05 * PY;
+      g.fillStyle = o.basketColor || '#3d4045'; g.fillRect(cx - bw / 2, BY, bw, bh);
+      g.fillStyle = 'rgba(0,0,0,.32)'; for (let k = 1; k < 6; k++) g.fillRect(cx - bw / 2 + 3, BY + k * bh / 6, bw - 6, 2);
+      g.fillStyle = 'rgba(0,0,0,.14)'; g.fillRect(cx - bw / 2, BY + bh, bw, 4);
+    }
+  }
+  // Altay Gold (АР-35/36): стены — декоративная штукатурка тёмно-серая, окна ПВХ RAL 7016 шириной 1,8 / 1,38 м,
+  // высотой 1,77 м, голубое стекло; в части осей — узкий витраж в пол со стеклянным ограждением.
+  // Белая решётка (вертикали и пояса) — отдельной геометрией.
   function texGold(seed) {
     return canvasTex(1024, 1024, (g, W, H) => {
-      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
-      // небо в стекле: общий вертикальный градиент на весь атлас
+      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS, PX = bw / 3.2, PY = fh / 3.15;
+      const wall = g.createLinearGradient(0, 0, W, 0); wall.addColorStop(0, '#666d78'); wall.addColorStop(0.5, '#5f6672'); wall.addColorStop(1, '#666d78');
+      g.fillStyle = wall; g.fillRect(0, 0, W, H);
       for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
         const x = b * bw, y = f * fh;
-        const lit = r() < 0.2;
-        if (lit) litGlass(g, x, y, bw, fh, r);
-        else {
-          const k = r() * 16, gr = g.createLinearGradient(x, y, x + bw, y + fh);
-          gr.addColorStop(0, `rgb(${120 + k},${134 + k},${150 + k})`);
-          gr.addColorStop(0.5, `rgb(${70 + k},${82 + k},${98 + k})`);
-          gr.addColorStop(1, `rgb(${46},${54},${66})`);
-          g.fillStyle = gr; g.fillRect(x, y, bw, fh);
+        g.fillStyle = 'rgba(0,0,0,.08)'; g.fillRect(x, y + fh - 2, bw, 2);
+        if (b === 2) { // витраж в пол со стеклянным ограждением
+          const X = x + bw / 2 - 0.55 * PX, w = 1.1 * PX;
+          g.fillStyle = '#383e42'; g.fillRect(X - 3, y + 0.25 * PY, w + 6, fh - 0.3 * PY);
+          const gr = g.createLinearGradient(X, y, X, y + fh); gr.addColorStop(0, '#a9bfd8'); gr.addColorStop(1, '#6f87a5');
+          g.fillStyle = gr; g.fillRect(X, y + 0.28 * PY, w, fh - 0.36 * PY);
+          g.fillStyle = 'rgba(220,235,245,.45)'; g.fillRect(X - 6, y + fh - 1.05 * PY, w + 12, 0.95 * PY);
+          continue;
         }
-        if (lit) { g.fillStyle = 'rgba(90,60,30,.18)'; g.fillRect(x + bw * 0.15, y + fh * 0.55, bw * 0.3, fh * 0.35); }
-        g.fillStyle = '#2b3037'; g.fillRect(x + bw * 0.5 - 3, y, 6, fh);                      // импост
-        g.fillStyle = 'rgba(30,34,40,.55)'; g.fillRect(x, y + fh * 0.86, bw, fh * 0.06);        // ограждение
-        g.fillStyle = '#4a515b'; g.fillRect(x, y + fh - 7, bw, 7);                             // перекрытие (тонко)
-        g.fillStyle = '#f3f2ee'; g.fillRect(x, y, 34, fh);                                     // белая рама
-        g.fillStyle = 'rgba(0,0,0,.18)'; g.fillRect(x + 34, y, 5, fh);
+        winUnit(g, r, x + bw / 2, y, PX, PY, { w: b === 0 ? 1.38 : 1.8, h: 1.77, top: 0.35, frame: '#383e42', glass: [150, 172, 198], basket: b === 1 ? [1.8, 0.6] : null, basketColor: '#4b5059' });
       }
     });
   }
-  // Altay Ordo: белая штукатурка, тёмные окна разной ширины, чёрные вставки
+  // Altay Ordo, башни 4–11 (Тип 3.1, АР-23): фиброцементные панели графитово-серые (RAL 7024/7035),
+  // белые вертикали через ось и белые пояса через 4 этажа (RAL 9003), окна алюминиевые графитовые,
+  // под каждым — корзина кондиционера 1800 × 750
   function texOrdo(seed) {
     return canvasTex(1024, 1024, (g, W, H) => {
-      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS;
-      g.fillStyle = '#efeeea'; g.fillRect(0, 0, W, H);
-      // чёрные вставки идут вертикальными полосами через 2–4 этажа (как на рендерах), а не россыпью
-      const ins = new Set();
-      for (let b = 0; b < ATLAS_BAYS; b++) if (r() < 0.55) { const run = 2 + Math.floor(r() * 3), f0 = Math.floor(r() * (ATLAS_FLOORS - run + 1)); for (let f = f0; f < f0 + run; f++) ins.add(f * ATLAS_BAYS + b); }
-      for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
-        const x = b * bw, y = f * fh, t = ins.has(f * ATLAS_BAYS + b) ? 0 : 0.2 + r() * 0.8;
-        if (t < 0.16) { // чёрная вставка во всю ячейку
-          g.fillStyle = '#26282c'; g.fillRect(x + 6, y, bw - 12, fh);
-          if (r() < 0.6) { r() < 0.3 ? litGlass(g, x + bw * 0.3, y + fh * 0.16, bw * 0.4, fh * 0.66, r) : darkGlass(g, x + bw * 0.3, y + fh * 0.16, bw * 0.4, fh * 0.66, r); }
-          continue;
+      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS, PX = bw / 3.2, PY = fh / 3.0;
+      g.fillStyle = '#878b90'; g.fillRect(0, 0, W, H);
+      g.fillStyle = '#6c7075'; g.fillRect(bw + 0.3 * PX, 0, bw - 0.6 * PX, H); // тёмная западающая полоса
+      for (let f = 0; f < ATLAS_FLOORS; f++) {
+        if (f % 4 === 3) { g.fillStyle = '#f2f2ef'; g.fillRect(0, f * fh + fh - 0.42 * PY, W, 0.42 * PY); g.fillRect(0, ((f + 1) % ATLAS_FLOORS) * fh, W, 0.4 * PY); } // белый пояс
+        for (let b = 0; b < ATLAS_BAYS; b++) {
+          const x = b * bw, y = f * fh;
+          if (b % 2 === 0) { g.fillStyle = '#f2f2ef'; g.fillRect(x, y, 0.55 * PX, fh); g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(x + 0.55 * PX, y, 3, fh); } // белая вертикаль
+          winUnit(g, r, x + bw / 2 + 0.15 * PX, y, PX, PY, { w: 1.5, h: 1.3, top: 0.45, frame: '#34373b', glass: [148, 168, 192], basket: [1.8, 0.75], basketColor: '#3a3d42' });
         }
-        const ww = t < 0.55 ? 0.42 : t < 0.85 ? 0.62 : 0.22;
-        const wx = x + bw * (0.5 - ww / 2), wy = y + fh * 0.14, wh = fh * 0.7;
-        g.fillStyle = '#d9d8d3'; g.fillRect(wx - 5, wy - 5, bw * ww + 10, wh + 10);
-        if (r() < 0.14) litGlass(g, wx, wy, bw * ww, wh, r); else darkGlass(g, wx, wy, bw * ww, wh, r);
-        g.fillStyle = '#1d2026'; g.fillRect(wx + bw * ww / 2 - 2, wy, 4, wh);
-        g.fillStyle = 'rgba(0,0,0,.06)'; g.fillRect(x, y + fh - 4, bw, 4);
+      }
+    });
+  }
+  // Altay Ordo, блоки 1–3 (Тип 3.2, АР-64): белые стены (RAL 9010), широкие окна в алюминиевых рамах,
+  // корзины кондиционера 2000 × 700, светло-серые вертикальные полосы и тёмно-серый пояс в один этаж (RAL 7021)
+  function texOrdo32(seed) {
+    return canvasTex(1024, 1024, (g, W, H) => {
+      const r = rng(seed), bw = W / ATLAS_BAYS, fh = H / ATLAS_FLOORS, PX = bw / 3.2, PY = fh / 3.3;
+      g.fillStyle = '#f1f1ee'; g.fillRect(0, 0, W, H);
+      g.fillStyle = '#4a4c50'; g.fillRect(0, 5 * fh, W, fh); // тёмный пояс
+      for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
+        const x = b * bw, y = f * fh;
+        if (b === 3 && f !== 5) { g.fillStyle = '#c9cacb'; g.fillRect(x + 0.9 * PX, y, 1.4 * PX, fh); continue; } // светло-серая полоса
+        winUnit(g, r, x + bw / 2, y, PX, PY, { w: b === 1 ? 2.4 : 1.6, h: 1.5, top: 0.5, frame: '#2f3236', glass: [156, 178, 204], basket: b === 1 ? null : [2.0, 0.7], basketColor: '#3a3d42' });
       }
     });
   }
@@ -148,13 +174,16 @@
         for (let x = 0; x < W; x += bw / 2) { g.fillStyle = 'rgba(0,0,0,.12)'; g.fillRect(x, 0, 2, H); }
         return;
       }
-      g.fillStyle = '#f0efeb'; g.fillRect(0, 0, W, H);
-      for (let f = 0; f < ATLAS_FLOORS; f++) for (let b = 0; b < ATLAS_BAYS; b++) {
-        const x = b * bw, y = f * fh;
-        if (r() < 0.38) { g.fillStyle = r() < 0.5 ? '#d6d6d2' : '#c9c9c5'; g.fillRect(x + 8, y + 8, bw - 16, fh - 16); }
-        g.fillStyle = 'rgba(0,0,0,.07)'; g.fillRect(x, y, bw, 3); g.fillRect(x, y, 3, fh);
-        if (b === 1 && r() < 0.7) { g.fillStyle = '#2a2d32'; g.fillRect(x + bw * 0.42, y + fh * 0.18, bw * 0.16, fh * 0.64); } // окно-щель
+      if (style === 'ordo32') { g.fillStyle = '#f1f1ee'; g.fillRect(0, 0, W, H); g.fillStyle = '#4a4c50'; g.fillRect(0, 5 * fh, W, fh); return; }
+      // торцы башен Ordo (АР-25, оси И-А): белые и серые вертикальные панели по 1,6 м зонами в 4 этажа,
+      // между зонами — белый пояс 1,3 м; окон нет
+      g.fillStyle = '#f2f2ef'; g.fillRect(0, 0, W, H);
+      const PY = fh / 3.0;
+      for (let z = 0; z < 2; z++) for (let s = 0; s < ATLAS_BAYS * 2; s++) {
+        const t = r(), col = t < 0.55 ? null : t < 0.8 ? '#b9bbbd' : '#6e7175';
+        if (col) { g.fillStyle = col; g.fillRect(s * bw / 2 + 3, z * 4 * fh + 1.3 * PY, bw / 2 - 6, 4 * fh - 1.3 * PY); }
       }
+      for (let s = 0; s <= ATLAS_BAYS * 2; s++) { g.fillStyle = 'rgba(0,0,0,.08)'; g.fillRect(s * bw / 2, 0, 2, H); }
     });
   }
   // Многоуровневая автостоянка: бетонные пояса и тёмные проёмы
@@ -710,6 +739,13 @@
     const roofMats = { roof: lambert({ map: texRoof(rs.roof, rs.seam) }), white: lambert({ color: 0xf4f3ef }), box: lambert({ color: rs.box }), cap: lambert({ color: rs.cap }), vent: lambert({ color: 0x3a3d42 }) };
     const darkMat = lambert({ color: 0x2a2f36 });
     const blankMat = p.style === 'ordo' || p.style === 'plus' ? lambert({ map: texBlank(p.style, seed + 3) }) : lambert({ color: p.blankColor || 0xe9e8e3 });
+    // у блока может быть свой фасад (Ordo: блоки 1–3 — Тип 3.2, белые; башни — Тип 3.1, серые)
+    const blockMats = {};
+    const matsFor = (b) => {
+      if (!b.facade) return [facadeMat, blankMat];
+      if (!blockMats[b.facade]) blockMats[b.facade] = [lambert({ map: b.facade === 'ordo32' ? texOrdo32(seed + 5) : facadeTex }), lambert({ map: texBlank(b.facade, seed + 6) })];
+      return blockMats[b.facade];
+    };
     const pick = [];
     const labelNew = (from, label) => { for (const m of root.children.slice(from)) if (m.isMesh || m.isGroup) { m.traverse((x) => { if (x.isMesh) { x.userData = { pid: p.id, podium: true, label }; pick.push(x); } }); } };
 
@@ -768,7 +804,8 @@
       }
       // Фасад по кусочкам ~3 м: окна только там, где за стеной квартира (по плану этажа),
       // глухая стена — у лестниц/лифтов и на сторонах, которые на плане без окон (plan.blank)
-      const walls = new THREE.Mesh(new THREE.BufferGeometry(), facadeMat);
+      const [bFacade, bBlank] = matsFor(b);
+      const walls = new THREE.Mesh(new THREE.BufferGeometry(), bFacade);
       const blockPick = [walls], pieces = [];
       {
         const pos = [], uv = [], idx = [], bpos = [], buv = [];
@@ -801,7 +838,7 @@
           const bi = []; for (let q = 0; q < bpos.length / 3; q += 4) bi.push(q, q + 1, q + 2, q, q + 2, q + 3);
           const bg2 = new THREE.BufferGeometry();
           bg2.setAttribute('position', new THREE.Float32BufferAttribute(bpos, 3)); bg2.setAttribute('uv', new THREE.Float32BufferAttribute(buv, 2)); bg2.setIndex(bi); bg2.computeVertexNormals();
-          const bw = new THREE.Mesh(bg2, blankMat); bw.userData = { pid: p.id, block: b.id };
+          const bw = new THREE.Mesh(bg2, bBlank); bw.userData = { pid: p.id, block: b.id };
           bg.add(bw); pick.push(bw); blockPick.push(bw);
         }
       }

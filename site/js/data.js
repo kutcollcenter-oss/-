@@ -317,7 +317,7 @@ window.YURTA_PROJECTS = [
     rotation: 0,
     view: { bearing: 18, pitch: 58, zoom: 16.8 },
     style: 'ordo',
-    blankEnds: true, blankColor: 0xeeede9, // торцы блоков — глухие белые стены (по рендерам)
+    blankEnds: true, blankColor: 0xeeede9, // торцы блоков глухие (АР-25: белые и серые панели, без окон)
     // подъезд (лифтовое ядро — верх плана) смотрит во двор: у блоков 4–6 на восток, у 7–11 на запад
     brandColor: '#1d1d1f',
     renders: ['img/ordo/r1.jpg', 'img/ordo/r3.jpg', 'img/ordo/r4.jpg', 'img/ordo/r5.jpg', 'img/ordo/r2.jpg', 'img/ordo/r6.jpg'],
@@ -392,9 +392,9 @@ window.YURTA_PROJECTS = [
       { t: 'sport', x0: 113.5, y0: 18, x1: 129, y1: 32, z: 0.5, kind: 'basket' },
     ],
     blocks: [
-      { id: '1', floors: 16, fp: notched(14.85, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А1): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
-      { id: '2', floors: 16, fp: notched(80.55, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А2): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
-      { id: '3', floors: 16, fp: notched(146.25, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А3): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '1', floors: 16, fp: notched(14.85, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, facade: 'ordo32', pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А1): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '2', floors: 16, fp: notched(80.55, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, facade: 'ordo32', pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А2): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
+      { id: '3', floors: 16, fp: notched(146.25, 106.5, 39.2, 18, 'h', 8, 0.9), plan: ORDO_PLAN_1, facade: 'ordo32', pricePerM2: 96800, firstResidentialFloor: 3, residentialBase: 8.4, floorHeight: 3.3 }, // Тип 3.2 (А3): 1–2 этажи — коммерция по 4,2 м, квартиры с +8,400
       { id: '4', floors: 16, fp: notched(0, 70, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
       { id: '5', floors: 16, fp: notched(0, 35, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
       { id: '6', floors: 16, fp: notched(0, 0, 21.7, 34, 'v', 7, 0.8), plan: ORDO_PLAN_2, planUp: 90, firstResidentialFloor: 1, residentialBase: 0, floorHeight: 3.0 }, // башня (Тип 3.1/3.3/3.4): квартиры с 1-го этажа, шаг 3,0 м
