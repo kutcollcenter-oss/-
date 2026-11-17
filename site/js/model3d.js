@@ -745,7 +745,7 @@
 
     // Жилые блоки
     const blockInfo = {};
-    const box = new THREE.BoxGeometry(1, 1, 1), finMat = lambert({ color: 0xf6f5f1 });
+    const box = new THREE.BoxGeometry(1, 1, 1), finMat = lambert({ color: 0xf6f5f1 }), graphiteMat = lambert({ color: 0x45484d });
     const instanced = (grp, list, mat) => {
       if (!list.length) return;
       const m = new THREE.InstancedMesh(box, mat, list.length);
@@ -757,7 +757,7 @@
       const top = api.floorBase(p, b.floors + 1, b);
       const fp = ccw(b.fp);
       const bg = new THREE.Group(); root.add(bg);
-      const fins = [], bands = [];
+      const fins = [], bands = [], darkFins = [];
       // коммерческий этаж в пятне блока
       if (LV(p, b, 'residentialBase') > p.blockBase) {
         const w = new THREE.Mesh(wallGeometry(fp, p.blockBase, LV(p, b, 'residentialBase'), BAY * 8, (LV(p, b, 'residentialBase') - p.blockBase) * 2, p.blockBase), shopMat);
@@ -831,10 +831,25 @@
             bands.push({ x: (a[0] + c[0]) / 2 + nx * 0.4, y: (a[1] + c[1]) / 2 + ny * 0.4, z, sx: len + 0.6, sy: 0.9, sz: 0.7, ang });
           }
         });
-      } else {
-        // кровля целиком строится в buildRoof (раньше здесь лежала тёмная плита — крыши выглядели чёрными)
+      } else if (p.style === 'plus') {
+        // Белые рамы-«порталы», как на рендерах: на каждой длинной грани — белые вертикали по краям
+        // и белый пояс по верху; короткие западающие участки между секциями — графитовые
+        const z0 = LV(p, b, 'residentialBase'), H = top - z0;
+        fp.forEach((a, i) => {
+          const c = fp[(i + 1) % fp.length];
+          const len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 0.5) return;
+          const dx = (c[0] - a[0]) / len, dy = (c[1] - a[1]) / len, nx = dy, ny = -dx, ang = Math.atan2(dy, dx);
+          const at = (t, off) => [a[0] + dx * t + nx * off, a[1] + dy * t + ny * off];
+          if (len >= 8) {
+            const w = 1.1, d = 0.32;
+            for (const t of [w / 2, len - w / 2]) { const [x, y] = at(t, d / 2); fins.push({ x, y, z: z0 + H / 2 + 0.6, sx: w, sy: d, sz: H + 1.2, ang }); }
+            const [x, y] = at(len / 2, d / 2); bands.push({ x, y, z: top - 0.2, sx: len, sy: d, sz: 1.6, ang });
+          } else if (len >= 2.5 && len < 6) {
+            const [x, y] = at(len / 2, 0.06); darkFins.push({ x, y, z: z0 + H / 2, sx: len, sy: 0.12, sz: H, ang });
+          }
+        });
       }
-      instanced(bg, fins, finMat); instanced(bg, bands, finMat);
+      instanced(bg, fins, finMat); instanced(bg, bands, finMat); instanced(bg, darkFins, graphiteMat);
       blockInfo[b.id] = { fp, group: bg, pickMeshes: blockPick, pieces };
     }
 
