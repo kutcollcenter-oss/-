@@ -65,6 +65,13 @@
   <pre><code>{ "token": "3f9c…", "expiresIn": 86400, "projects": ["zhk-avangard"] }</code></pre>
   <p>Токен действует 24 часа. Передавайте его в каждом запросе заголовком <code>Authorization: Bearer 3f9c…</code>. Когда токен истечёт, придёт ответ 401: получите новый токен тем же запросом. Не больше 10 попыток входа за 10 минут.</p>
 
+  <h2>Список квартир (сверка нумерации)</h2>
+  <p><span class="m">GET</span><code>/api/partner/apartments?project=zhk-avangard</code> — все квартиры ЖК в том виде, как их знает наш сайт: ключ, блок, этаж, номер, комнаты, площадь, текущий статус. Начните с него, чтобы сопоставить номера с вашей шахматкой.</p>
+  <pre><code>{ "project": "zhk-avangard", "apartments": [
+  { "key": "Б-37", "block": "Б", "floor": 5, "number": 37, "rooms": 2, "area": 61.5, "status": "free" }
+] }</code></pre>
+  <p>Статусы для ключей, которых нет в этом списке, не принимаются: в ответе они попадут в <code>rejected</code> с причиной.</p>
+
   <h2>2. Обновить статусы</h2>
   <p><span class="m post">POST</span><code>/api/partner/statuses</code> — можно передать сразу всю шахматку, до 5000 квартир за раз.</p>
   <pre><code>{
