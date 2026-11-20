@@ -525,6 +525,66 @@
     B(a0, Y0 - 7.2, 3.15, a1, Y0, 3.4, frame);
   }
 
+  /* ---------- Жизнь во дворе: люди и машины на проездах ---------- */
+  // Люди — простые фигурки (тело + голова), стоят у площадок и идут по тротуарам; на компьютере медленно ходят.
+  // Машины едут по середине проездов туда-обратно. Всё — один-два InstancedMesh, анимация — смена матриц.
+  function buildLife(root, p, seed, lawnsFn) {
+    const r = rng(seed + 313), people = [], cars = [];
+    const hardSurf = (p.surfaces || []).filter((s) => /^#(cfcac0|cfc9bd|d8d4cb)$/i.test(s.color || ''));
+    const roads = (p.surfaces || []).filter((s) => /^#6c6f73$/i.test(s.color || '') && s.pts.length === 4);
+    const blocks = p.blocks.map((b) => offsetPoly(b.fp, 1.5)), vols = (p.volumes || []).map((v) => offsetPoly(v.pts, 1));
+    const free = (q) => !blocks.some((b) => inPoly(q, b)) && !vols.some((v) => inPoly(q, v));
+    // у площадок двора — по 2–4 человека
+    for (const y of p.yard || []) {
+      if (y.x0 == null || !/play|sport|workout|lounge/.test(y.t)) continue;
+      const n = 2 + Math.floor(r() * 3);
+      for (let i = 0; i < n; i++) { const q = [y.x0 + r() * (y.x1 - y.x0), y.y0 + r() * (y.y1 - y.y0)]; people.push({ x: q[0], y: q[1], z: (y.z || 0) + 0.1, kid: /play/.test(y.t) && r() < 0.6, walk: null }); }
+    }
+    // на тротуарах и площадках с твёрдым покрытием — прохожие, идут вдоль длинной стороны
+    for (const s of hardSurf) {
+      const xs = s.pts.map((q) => q[0]), ys = s.pts.map((q) => q[1]), area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...ys) - Math.min(...ys));
+      const n = Math.min(14, Math.round(area / 900));
+      for (let i = 0, t = 0; i < n && t < n * 8; t++) {
+        const q = [Math.min(...xs) + r() * (Math.max(...xs) - Math.min(...xs)), Math.min(...ys) + r() * (Math.max(...ys) - Math.min(...ys))];
+        if (!inPoly(q, s.pts) || !free(q)) continue;
+        const along = Math.max(...xs) - Math.min(...xs) > Math.max(...ys) - Math.min(...ys);
+        people.push({ x: q[0], y: q[1], z: s.z + 0.05, kid: false, walk: { dir: along ? [1, 0] : [0, 1], range: 6 + r() * 10, ph: r() * 6.28, sp: 0.06 + r() * 0.05 } }); i++;
+      }
+    }
+    // машины на прямых проездах: 1 на ~45 м
+    for (const s of roads) {
+      const xs = s.pts.map((q) => q[0]), ys = s.pts.map((q) => q[1]), W = Math.max(...xs) - Math.min(...xs), H = Math.max(...ys) - Math.min(...ys);
+      const L = Math.max(W, H); if (L < 30 || Math.min(W, H) < 4.5) continue;
+      const n = Math.max(1, Math.round(L / 45));
+      for (let i = 0; i < n; i++) cars.push({ alongX: W > H, a: W > H ? Math.min(...xs) + 3 : Math.min(...ys) + 3, b: W > H ? Math.max(...xs) - 3 : Math.max(...ys) - 3, c: W > H ? (Math.min(...ys) + Math.max(...ys)) / 2 : (Math.min(...xs) + Math.max(...xs)) / 2, lane: r() < 0.5 ? 1 : -1, ph: r(), sp: 0.012 + r() * 0.01, z: s.z, col: [0xf2f2f2, 0x1d1f22, 0x9aa0a6, 0x8f1d1d, 0x1f3f7a][Math.floor(r() * 5)] });
+    }
+    if (LITE) people.splice(60);
+    const o = new THREE.Object3D(), col = new THREE.Color(), shirts = [0x3b5ba8, 0xc23b3b, 0x2f2f33, 0xe8e2d6, 0x4f8a3a, 0xd98a2b, 0x6b4c9a, 0x8a8f96];
+    const body = people.length ? new THREE.InstancedMesh(new THREE.CylinderGeometry(0.2, 0.17, 1, 6), lambert({ color: 0xffffff }), people.length) : null;
+    const head = people.length ? new THREE.InstancedMesh(new THREE.SphereGeometry(0.13, 6, 5), lambert({ color: 0xd9b48f }), people.length) : null;
+    const place = (pp, i) => {
+      const h = pp.kid ? 1.0 : 1.55;
+      o.rotation.set(Math.PI / 2, 0, 0); o.position.set(pp.x, pp.y, pp.z + h * 0.42); o.scale.set(1, h * 0.84, 1); o.updateMatrix(); body.setMatrixAt(i, o.matrix);
+      o.rotation.set(0, 0, 0); o.position.set(pp.x, pp.y, pp.z + h * 0.92); o.scale.set(1, 1, 1); o.updateMatrix(); head.setMatrixAt(i, o.matrix);
+    };
+    people.forEach((pp, i) => { pp.x0 = pp.x; pp.y0 = pp.y; place(pp, i); body.setColorAt(i, col.setHex(shirts[Math.floor(r() * shirts.length)])); });
+    if (body) { body.userData.noShadow = head.userData.noShadow = true; root.add(body, head); }
+    const box = new THREE.BoxGeometry(1, 1, 1);
+    const cb = cars.length ? new THREE.InstancedMesh(box, lambert({ color: 0xffffff }), cars.length) : null, cc = cars.length ? new THREE.InstancedMesh(box, lambert({ color: 0x23282f }), cars.length) : null;
+    const placeCar = (c, i, t) => {
+      const u = (c.ph + t * c.sp) % 2, k = u < 1 ? u : 2 - u, dir = u < 1 ? 1 : -1, pos = c.a + (c.b - c.a) * k, off = 1.4 * dir * c.lane;
+      const x = c.alongX ? pos : c.c + off, y = c.alongX ? c.c + off : pos, ang = c.alongX ? Math.PI / 2 : 0;
+      o.rotation.set(0, 0, ang); o.position.set(x, y, c.z + 0.62); o.scale.set(1.8, 4.5, 0.72); o.updateMatrix(); cb.setMatrixAt(i, o.matrix);
+      o.position.set(x, y, c.z + 1.25); o.scale.set(1.6, 2.3, 0.55); o.updateMatrix(); cc.setMatrixAt(i, o.matrix);
+    };
+    cars.forEach((c, i) => { placeCar(c, i, 0); cb.setColorAt(i, col.setHex(c.col)); });
+    if (cb) { cb.userData.noShadow = cc.userData.noShadow = true; root.add(cb, cc); }
+    // шаг анимации: t — секунды; вызывается из render слоя (только на компьютере)
+    return (t) => {
+      if (body) { people.forEach((pp, i) => { if (!pp.walk) return; const w = pp.walk, s = Math.sin(pp.walk.ph + t * w.sp) * w.range / 2; pp.x = pp.x0 + w.dir[0] * s; pp.y = pp.y0 + w.dir[1] * s; place(pp, i); }); body.instanceMatrix.needsUpdate = head.instanceMatrix.needsUpdate = true; }
+      if (cb) { cars.forEach((c, i) => placeCar(c, i, t)); cb.instanceMatrix.needsUpdate = cc.instanceMatrix.needsUpdate = true; }
+    };
+  }
   // Ряды парковочных мест: разметка + машины
   function buildParking(root, rows, seed) {
     if (!rows.length) return;
@@ -895,6 +955,27 @@
     buildParking(root, p.parking || [], seed);
     buildYard(root, p.yard, seed);
     buildTrees(root, autoTrees(p, seed), seed);
+    const lifeStep = buildLife(root, p, seed);
+    // Вывески над витринами коммерции первого этажа: короб с подсвеченной надписью над каждой 2-й–3-й секцией витрин
+    {
+      const names = ['Кофейня', 'Аптека', 'Продукты', 'Пекарня', 'Салон красоты', 'Цветы', 'Стоматология', 'Банк', 'Оптика', 'Кафе'];
+      const sr = rng(seed + 21), signs = [];
+      const shopVols = (p.volumes || []).filter((v) => v.tex === 'shop' && v.base === 0);
+      for (const v of shopVols) {
+        const pts = ccw(v.pts), z = Math.min(v.top, v.floorH || 4.2) - 0.75;
+        pts.forEach((a, i) => {
+          const c = pts[(i + 1) % pts.length], len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 8) return;
+          const dx = (c[0] - a[0]) / len, dy = (c[1] - a[1]) / len, n = [dy, -dx];
+          for (let t = 4; t + 4 < len; t += 9 + sr() * 6) if (sr() < 0.7) signs.push({ x: a[0] + dx * t + n[0] * 0.08, y: a[1] + dy * t + n[1] * 0.08, z, ang: Math.atan2(dy, dx), name: names[Math.floor(sr() * names.length)] });
+        });
+      }
+      const texCache = {};
+      const signTex = (name) => texCache[name] || (texCache[name] = canvasTex(512, 96, (g, W, H) => { g.fillStyle = '#1f2226'; g.fillRect(0, 0, W, H); g.fillStyle = '#f4efe4'; g.font = 'bold 54px Arial'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(name, W / 2, H / 2 + 2); markGlass(0, 0, 0, 0); }));
+      for (const sg of signs.slice(0, LITE ? 12 : 40)) {
+        const m = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.8), new THREE.MeshBasicMaterial({ map: signTex(sg.name), side: THREE.DoubleSide }));
+        m.position.set(sg.x, sg.y, sg.z); m.rotation.set(Math.PI / 2, sg.ang, 0); m.userData.noShadow = true; root.add(m);
+      }
+    }
     // Фонари вдоль красной линии участка (2,5 м внутрь, шаг ~18 м): днём серые, ночью светят и дают пятно света на земле
     const lamps = [];
     if (p.plot) {
@@ -1164,7 +1245,7 @@
       matchMesh.geometry = g; matchMesh.visible = true;
     }
     [hoverMesh, selMesh, aptMesh].forEach((x) => { x.userData.noShadow = true; });
-    return { setNight, shadowState, scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
+    return { lifeStep, setNight, shadowState, scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -1193,6 +1274,7 @@
           const l = new THREE.Matrix4().makeTranslation(mc.x, mc.y, mc.z).scale(new THREE.Vector3(s, -s, s));
           camera.projectionMatrix = mm.multiply(l);
           L.inv = camera.projectionMatrix.clone().invert();
+          if (!LITE && L.built.lifeStep) { L.built.lifeStep(performance.now() / 1000); m_.triggerRepaint(); } // люди и машины двигаются
           if (L.built.aptMesh.visible) { // плавное «дыхание», один раз в 1,7 секунды
             const k = 0.5 - 0.5 * Math.cos(performance.now() / 1700 * Math.PI * 2); L.built.aptMat.opacity = 0.3 + 0.5 * k * k * (3 - 2 * k);
             m_.triggerRepaint();
