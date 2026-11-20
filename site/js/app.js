@@ -90,6 +90,7 @@
       } else if (b.plan.outline) { boxOf(b); b.fp = planToLocal(p, b, b.plan.outline); }
     }
     engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
+    setTimeout(() => sunDefault(), 0); // сцены строятся в onAdd слоёв — тени включаем сразу после
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
     addMarkers();
@@ -888,7 +889,13 @@
     sunState.on = true;
     return s;
   }
-  function sunOff() { if (sunState.on && engine) { engine.setSun(false); sunState.on = false; } }
+  // Обычный вид: мягкое дневное солнце с тенями (весна, 15:00 по Бишкеку) — дома объёмные, тени лежат на земле
+  function sunDefault() {
+    if (!engine) return;
+    const s = sunPos(localDate(`${new Date().getFullYear()}-04-10`, 15), 42.87, 74.6);
+    engine.setSun(true, s.az, s.alt);
+  }
+  function sunOff() { if (sunState.on && engine) { sunDefault(); sunState.on = false; } }
   function sunHtml() {
     return `<div class="sunbox" id="sunBox"><div class="sun-head"><h3>☀ Солнце в квартире</h3><span class="small">дома этого ЖК учтены</span></div>
       <div class="sun-days">${SUN_DAYS().map((d) => `<button class="bchip ${d.id === sunState.day ? 'on' : ''}" data-sday="${d.id}">${d.name}</button>`).join('')}</div>

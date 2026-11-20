@@ -1,24 +1,37 @@
 /* Юрта — реалистичные 3D-модели ЖК поверх карты (three.js как custom layer MapLibre) */
 (function () {
   const BAY = 3.2;          // ширина одной оси окна, м
+  // Облегчённая версия для телефонов: меньше карта теней, без отражений и лишней геометрии
+  const LITE = (window.matchMedia && matchMedia('(max-width: 760px), (pointer: coarse)').matches) || (navigator.hardwareConcurrency || 8) <= 4;
   const ATLAS_BAYS = 4, ATLAS_FLOORS = 8;
 
   /* ---------- Текстуры ---------- */
   function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 100000) / 100000; }; }
+  // Параллельно с цветом рисуем маску материала: зелёный канал — шероховатость, синий — «металличность».
+  // Стена матовая, стекло гладкое и отражает небо (используется на компьютере, на телефоне — без отражений)
+  let MASK = null;
+  const markGlass = (x, y, w, h, lit) => { if (MASK) { MASK.fillStyle = lit ? 'rgb(0,90,40)' : 'rgb(0,22,200)'; MASK.fillRect(x, y, w, h); } };
   function canvasTex(w, h, draw) {
     const c = document.createElement('canvas'); c.width = w; c.height = h;
+    const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
+    MASK = mc.getContext('2d'); MASK.fillStyle = 'rgb(0,235,0)'; MASK.fillRect(0, 0, w, h);
     draw(c.getContext('2d'), w, h);
+    MASK = null;
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
+    const m = new THREE.CanvasTexture(mc); m.wrapS = m.wrapT = THREE.RepeatWrapping;
+    t.yMask = m;
     return t;
   }
   function litGlass(g, x, y, w, h, r) {
+    markGlass(x, y, w, h, true);
     const gr = g.createLinearGradient(x, y, x, y + h);
     const warm = r() < 0.5;
     gr.addColorStop(0, warm ? '#fbe2b0' : '#f6efd8'); gr.addColorStop(1, warm ? '#cf8f4e' : '#c9a774');
     g.fillStyle = gr; g.fillRect(x, y, w, h);
   }
   function darkGlass(g, x, y, w, h, r) {
+    markGlass(x, y, w, h, false);
     const k = r() * 22;
     const gr = g.createLinearGradient(x, y, x + w * 0.6, y + h);
     gr.addColorStop(0, `rgb(${96 + k},${112 + k},${130 + k})`);
@@ -33,6 +46,7 @@
     g.fillStyle = o.frame; g.fillRect(X - 4, Y - 4, ww + 8, wh + 8);
     if (r() < (o.lit == null ? 0.2 : o.lit)) litGlass(g, X, Y, ww, wh, r);
     else {
+      markGlass(X, Y, ww, wh, false);
       const k = r() * 16, [R, G, B] = o.glass, gr = g.createLinearGradient(X, Y, X + ww * 0.3, Y + wh);
       gr.addColorStop(0, `rgb(${R + k},${G + k},${B + k})`); gr.addColorStop(1, `rgb(${R * 0.55 | 0},${G * 0.55 | 0},${B * 0.6 | 0})`);
       g.fillStyle = gr; g.fillRect(X, Y, ww, wh);
@@ -61,7 +75,7 @@
           const X = x + bw / 2 - 0.55 * PX, w = 1.1 * PX;
           g.fillStyle = '#383e42'; g.fillRect(X - 3, y + 0.25 * PY, w + 6, fh - 0.3 * PY);
           const gr = g.createLinearGradient(X, y, X, y + fh); gr.addColorStop(0, '#a9bfd8'); gr.addColorStop(1, '#6f87a5');
-          g.fillStyle = gr; g.fillRect(X, y + 0.28 * PY, w, fh - 0.36 * PY);
+          g.fillStyle = gr; g.fillRect(X, y + 0.28 * PY, w, fh - 0.36 * PY); markGlass(X, y + 0.28 * PY, w, fh - 0.36 * PY, false);
           g.fillStyle = 'rgba(220,235,245,.45)'; g.fillRect(X - 6, y + fh - 1.05 * PY, w + 12, 0.95 * PY);
           continue;
         }
@@ -136,6 +150,7 @@
         g.fillStyle = '#34373c'; g.fillRect(X - 4, Y - 4, ww + 8, wh + 8);                       // графитовая рама
         if (r() < 0.22) litGlass(g, X, Y, ww, wh, r);
         else { // в стекле отражается небо: сверху светлее, книзу темнее
+          markGlass(X, Y, ww, wh, false);
           const gr = g.createLinearGradient(X, Y, X + ww * 0.3, Y + wh);
           const k = r() * 18; gr.addColorStop(0, `rgb(${130 + k},${146 + k},${164 + k})`); gr.addColorStop(0.55, `rgb(${78 + k / 2},${89 + k / 2},${104 + k / 2})`); gr.addColorStop(1, '#3a4048');
           g.fillStyle = gr; g.fillRect(X, Y, ww, wh);
@@ -278,6 +293,26 @@
   function oval(c, rx, ry, z, mat) { const pts = Array.from({ length: 32 }, (_, k) => [c[0] + rx * Math.cos(k / 32 * Math.PI * 2), c[1] + ry * Math.sin(k / 32 * Math.PI * 2)]); return flat(pts, z, mat); }
 
   const lambert = (opts) => new THREE.MeshLambertMaterial({ side: THREE.DoubleSide, ...opts });
+  // Небо для отражений: голубой зенит, светлая дымка у горизонта, тёплая земля внизу (общая на все ЖК)
+  let envTex = null;
+  function getEnv() {
+    if (envTex || !renderer) return envTex;
+    const c = document.createElement('canvas'); c.width = 512; c.height = 256;
+    const g = c.getContext('2d'), gr = g.createLinearGradient(0, 0, 0, 256);
+    gr.addColorStop(0, '#8ea6c4'); gr.addColorStop(0.38, '#c3cfdc'); gr.addColorStop(0.5, '#e4e7ea'); gr.addColorStop(0.53, '#5b6571'); gr.addColorStop(1, '#3a414a'); // низ — отражение соседних домов и улицы
+    g.fillStyle = gr; g.fillRect(0, 0, 512, 256);
+    g.fillStyle = 'rgba(255,255,255,.55)'; for (let i = 0; i < 14; i++) { g.beginPath(); g.ellipse(Math.random() * 512, 40 + Math.random() * 60, 30 + Math.random() * 40, 8 + Math.random() * 8, 0, 0, Math.PI * 2); g.fill(); }
+    g.fillStyle = 'rgba(120,128,140,.5)'; for (let x = 0; x < 512; x += 6) { const h = 4 + Math.random() * 18; g.fillRect(x, 128 - h, 5, h); } // силуэт города на горизонте
+    const t = new THREE.CanvasTexture(c); t.mapping = THREE.EquirectangularReflectionMapping;
+    const pm = new THREE.PMREMGenerator(renderer); envTex = pm.fromEquirectangular(t).texture; pm.dispose(); t.dispose();
+    return envTex;
+  }
+  // Фасад со стеклом: на компьютере — материал с отражениями (стекло гладкое, стена матовая), на телефоне — простой
+  function facadeMaterial(tex) {
+    const env = LITE ? null : getEnv();
+    if (!env || !tex.yMask) return lambert({ map: tex });
+    return new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map: tex, roughnessMap: tex.yMask, metalnessMap: tex.yMask, roughness: 1, metalness: 1, color: 0x9e9e9e, envMap: env, envMapIntensity: 0.75 }); // основной цвет приглушён: материал ярче простого на рассеянном свете неба
+  }
 
   /* ---------- Детали: заезды в паркинг, навесы, парковки ---------- */
   function quad(a, b, c, d, uv = [0, 0, 1, 0, 1, 1, 0, 1]) {
@@ -729,8 +764,8 @@
 
     const seed = [...p.id].reduce((s, c) => s * 31 + c.charCodeAt(0), 7);
     const facadeTex = p.style === 'gold' ? texGold(seed) : p.style === 'plus' ? texPlus(seed) : texOrdo(seed);
-    const facadeMat = lambert({ map: facadeTex });
-    const shopMat = lambert({ map: p.style === 'plus' ? texShopPlus(seed + 1) : texShop(seed + 1) });
+    const facadeMat = facadeMaterial(facadeTex);
+    const shopMat = facadeMaterial(p.style === 'plus' ? texShopPlus(seed + 1) : texShop(seed + 1));
     const kinderMat = lambert({ map: texKinder(seed + 2) });
     const parkadeMat = lambert({ map: texParkade() });
     const entranceMat = lambert({ map: texEntrance() });
@@ -743,7 +778,7 @@
     const blockMats = {};
     const matsFor = (b) => {
       if (!b.facade) return [facadeMat, blankMat];
-      if (!blockMats[b.facade]) blockMats[b.facade] = [lambert({ map: b.facade === 'ordo32' ? texOrdo32(seed + 5) : facadeTex }), lambert({ map: texBlank(b.facade, seed + 6) })];
+      if (!blockMats[b.facade]) blockMats[b.facade] = [facadeMaterial(b.facade === 'ordo32' ? texOrdo32(seed + 5) : facadeTex), lambert({ map: texBlank(b.facade, seed + 6) })];
       return blockMats[b.facade];
     };
     const pick = [];
@@ -918,10 +953,13 @@
       aptMesh.position.z = api.floorBase(p, f, b) + 0.25;
       aptMesh.visible = true; selMat.opacity = 0.35;
     }
+    const shadowState = { dirty: true };
     const ghostMat = new THREE.MeshLambertMaterial({ color: 0xe9ecf0, transparent: true, opacity: 0.16, depthWrite: false, side: THREE.DoubleSide });
     const focus = { id: null, targets: [] };
     function setFocus(id, targets) { focus.id = id; focus.targets = targets || []; if (!id) applyGhost(new Set()); }
     function applyGhost(ids) {
+      const key = [...ids].sort().join(',');
+      if (key !== applyGhost.last) { applyGhost.last = key; shadowState.dirty = true; }
       for (const [bid, info] of Object.entries(blockInfo)) {
         const ghost = ids.has(bid);
         info.group.traverse((m) => {
@@ -938,7 +976,7 @@
     const ext = (() => { const xs = p.plot.map((q) => q[0]), ys = p.plot.map((q) => q[1]); return { cx: (Math.min(...xs) + Math.max(...xs)) / 2, cy: (Math.min(...ys) + Math.max(...ys)) / 2, r: Math.hypot(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) / 2 + 60 }; })();
     const centerW = new THREE.Vector3(ext.cx, ext.cy, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), root.rotation.z);
     sun.target.position.copy(centerW); scene.add(sun.target);
-    sun.shadow.mapSize.set(2048, 2048);
+    sun.shadow.mapSize.set(LITE ? 1024 : 2048, LITE ? 1024 : 2048);
     Object.assign(sun.shadow.camera, { left: -ext.r, right: ext.r, top: ext.r, bottom: -ext.r, near: 1, far: 1200 });
     sun.shadow.bias = -0.0008; sun.shadow.normalBias = 0.4;
     const catcher = new THREE.Mesh(new THREE.PlaneGeometry(ext.r * 2.6, ext.r * 2.6), new THREE.ShadowMaterial({ opacity: 0.32 }));
@@ -947,6 +985,7 @@
     // az — азимут солнца (0 = север, по часовой), alt — высота над горизонтом, градусы
     function setSun(on, az, alt) {
       const shadows = !!on;
+      shadowState.dirty = true; // тени пересчитываем только когда что-то поменялось
       root.traverse((m) => { if (m.isMesh && !m.userData.noShadow) { m.castShadow = shadows; m.receiveShadow = shadows; } });
       catcher.visible = shadows; sun.castShadow = shadows;
       if (!on) { sun.position.copy(defaults.pos); sun.intensity = defaults.int; amb.intensity = defaults.amb; hemiL.intensity = defaults.hemi; sun.color.set(0xfff0d8); return; }
@@ -994,7 +1033,7 @@
       matchMesh.geometry = g; matchMesh.visible = true;
     }
     [hoverMesh, selMesh, aptMesh].forEach((x) => { x.userData.noShadow = true; });
-    return { scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
+    return { shadowState, scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -1013,9 +1052,10 @@
           if (!renderer) {
             renderer = new THREE.WebGLRenderer({ canvas: m.getCanvas(), context: gl, antialias: true });
             renderer.autoClear = false;
-            renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            renderer.shadowMap.enabled = true; renderer.shadowMap.type = LITE ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
+            renderer.shadowMap.autoUpdate = false; // сцена неподвижна — карту теней обновляем по требованию (needsUpdate)
           }
-          L.built = buildScene(p, api);
+          try { L.built = buildScene(p, api); } catch (e) { console.error('3D ' + p.id + ': ' + (e && e.stack || e)); throw e; }
         },
         render(gl, matrix) {
           const mm = new THREE.Matrix4().fromArray(matrix);
@@ -1027,6 +1067,7 @@
             m_.triggerRepaint();
           }
           renderer.resetState();
+          if (L.built.shadowState.dirty) { renderer.shadowMap.needsUpdate = true; L.built.shadowState.dirty = false; }
           renderer.render(L.built.scene, camera);
         },
       });
