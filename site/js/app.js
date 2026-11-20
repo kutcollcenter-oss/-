@@ -141,6 +141,13 @@
     map.addSource('y-sat', CFG.maptilerKey
       ? { type: 'raster', tiles: ['https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=' + CFG.maptilerKey], tileSize: 512, maxzoom: 20, attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">© MapTiler</a> © Maxar' }
       : { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: 'Снимки © Esri, Maxar, Earthstar Geographics' });
+    // Если MapTiler перестал отдавать снимки (кончился бесплатный лимит, ключ отключён) — сами переходим на Esri
+    let satFails = 0;
+    map.on('error', (e) => {
+      if (!CFG.maptilerKey || e.sourceId !== 'y-sat' || ++satFails < 4) return;
+      const src = map.getSource('y-sat'); if (!src || !src.setTiles || src._fallback) return;
+      src._fallback = true; src.setTiles(['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}']);
+    });
     const firstLine = map.getStyle().layers.find((l) => l.type === 'line' || l.type === 'symbol');
     map.addLayer({ id: 'y-sat', type: 'raster', source: 'y-sat', layout: { visibility: 'none' }, paint: { 'raster-saturation': -0.1, 'raster-contrast': 0.05 } }, firstLine && firstLine.id);
     map.addControl({
