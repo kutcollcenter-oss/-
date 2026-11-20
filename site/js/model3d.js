@@ -677,6 +677,14 @@
     else { g.strokeRect(70, 12, 116, 60); g.strokeRect(70, 440, 116, 60); }
     return (YM[key] = new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(c) }));
   }
+  // Корзина кондиционера: графитовые горизонтальные ламели
+  function texBasket() {
+    const c = document.createElement('canvas'); c.width = 64; c.height = 32; const g = c.getContext('2d');
+    g.fillStyle = '#44474c'; g.fillRect(0, 0, 64, 32);
+    for (let y = 3; y < 32; y += 5) { g.fillStyle = '#2a2c30'; g.fillRect(2, y, 60, 2); }
+    g.fillStyle = '#5a5e64'; g.fillRect(0, 0, 64, 2);
+    return new THREE.CanvasTexture(c);
+  }
   /* ---------- Деревья: сами расставляются по газонам генплана ---------- */
   const inPoly = (q, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > q[1]) !== (yj > q[1]) && q[0] < (xj - xi) * (q[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
   const GREEN = (c) => typeof c === 'string' && /^#(86b765|7fb35f|8bc06a)$/i.test(c);
@@ -938,6 +946,24 @@
         }
       }
       walls.userData = { pid: p.id, block: b.id };
+      // Объём на фасаде: корзины кондиционеров — настоящие короба под каждым окном (как в текстуре: окно по центру оси 3,2 м)
+      const BASKET = !LITE && !b.facade && { plus: { dx: 0, w: 1.8, h: 0.6, top: 1.89, d: 0.5 }, ordo: { dx: 0.15, w: 1.8, h: 0.75, top: 1.8, d: 0.55 } }[p.style];
+      if (BASKET) {
+        const fh = LV(p, b, 'floorHeight'), f0 = LV(p, b, 'firstResidentialFloor'), list = [];
+        fp.forEach((a, i) => {
+          const c = fp[(i + 1) % fp.length], len = Math.hypot(c[0] - a[0], c[1] - a[1]); if (len < 3) return;
+          const dx = (c[0] - a[0]) / len, dy = (c[1] - a[1]) / len, n = [dy, -dx], ang = Math.atan2(dy, dx);
+          for (let j = 0; (j + 0.5) * BAY + BASKET.dx + BASKET.w / 2 < len; j++) {
+            const t = (j + 0.5) * BAY + BASKET.dx, mid = [a[0] + dx * t, a[1] + dy * t];
+            if (api.isWindow && !api.isWindow(p, b, mid, n)) continue;
+            for (let f = f0; f <= b.floors; f++) {
+              const z = api.floorBase(p, f, b) + fh - BASKET.top - BASKET.h / 2;
+              list.push({ x: mid[0] + n[0] * BASKET.d / 2, y: mid[1] + n[1] * BASKET.d / 2, z, sx: BASKET.w, sy: BASKET.d, sz: BASKET.h, ang });
+            }
+          }
+        });
+        if (list.length) { if (!buildScene.basketMat) buildScene.basketMat = lambert({ map: texBasket() }); instanced(bg, list, buildScene.basketMat); }
+      }
       bg.add(walls); pick.push(walls);
       const roof = buildRoof(bg, p, b, fp, top, rs, roofMats, seed); pick.push(roof);
       bg.add(slab(offsetPoly(fp, 0.12), LV(p, b, 'residentialBase') - 0.4, LV(p, b, 'residentialBase') + 0.1, white)); // цокольный пояс
