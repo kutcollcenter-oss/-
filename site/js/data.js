@@ -10,7 +10,7 @@ window.YURTA_CONFIG = {
   city: { name: 'Бишкек', center: [74.585, 42.862], zoom: 12.2 },
   // Ключ MapTiler для свежих спутниковых снимков (публичный ключ, ограничить в кабинете MapTiler доменом сайта).
   // Пусто — снимки Esri World Imagery.
-  maptilerKey: '',
+  maptilerKey: 'UxXKWx05b7UBy7JhcNQ8',
   districts: [
     { id: 'all', name: 'Все районы' },
     { id: 'leninsky', name: 'Ленинский', center: [74.55, 42.84] },
