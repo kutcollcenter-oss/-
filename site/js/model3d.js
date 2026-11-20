@@ -9,18 +9,28 @@
   function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s ^= s >>> 17; s ^= s << 5; return ((s >>> 0) % 100000) / 100000; }; }
   // Параллельно с цветом рисуем маску материала: зелёный канал — шероховатость, синий — «металличность».
   // Стена матовая, стекло гладкое и отражает небо (используется на компьютере, на телефоне — без отражений)
-  let MASK = null;
-  const markGlass = (x, y, w, h, lit) => { if (MASK) { MASK.fillStyle = lit ? 'rgb(0,90,40)' : 'rgb(0,22,200)'; MASK.fillRect(x, y, w, h); } };
+  // Ещё один холст — свечение окон ночью: горящие днём окна светятся всегда, из тёмных ночью загорается около трети
+  let MASK = null, EMIT = null;
+  const markGlass = (x, y, w, h, lit) => {
+    if (MASK) { MASK.fillStyle = lit ? 'rgb(0,90,40)' : 'rgb(0,22,200)'; MASK.fillRect(x, y, w, h); }
+    if (EMIT && (lit || Math.random() < 0.33)) {
+      const k = Math.random(), gr = EMIT.createLinearGradient(x, y, x, y + h);
+      gr.addColorStop(0, k < 0.5 ? '#ffd9a0' : '#ffe9c8'); gr.addColorStop(1, k < 0.5 ? '#c98a48' : '#d8b080');
+      EMIT.globalAlpha = lit ? 1 : 0.55 + Math.random() * 0.45; EMIT.fillStyle = gr; EMIT.fillRect(x, y, w, h); EMIT.globalAlpha = 1;
+    }
+  };
   function canvasTex(w, h, draw) {
     const c = document.createElement('canvas'); c.width = w; c.height = h;
     const mc = document.createElement('canvas'); mc.width = w; mc.height = h;
     MASK = mc.getContext('2d'); MASK.fillStyle = 'rgb(0,235,0)'; MASK.fillRect(0, 0, w, h);
+    const ec = document.createElement('canvas'); ec.width = w; ec.height = h; EMIT = ec.getContext('2d'); EMIT.fillStyle = '#000'; EMIT.fillRect(0, 0, w, h);
     draw(c.getContext('2d'), w, h);
-    MASK = null;
+    MASK = null; EMIT = null;
     const t = new THREE.CanvasTexture(c);
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = 8;
     const m = new THREE.CanvasTexture(mc); m.wrapS = m.wrapT = THREE.RepeatWrapping;
     t.yMask = m;
+    const e = new THREE.CanvasTexture(ec); e.wrapS = e.wrapT = THREE.RepeatWrapping; t.yEmit = e;
     return t;
   }
   function litGlass(g, x, y, w, h, r) {
@@ -310,8 +320,9 @@
   // Фасад со стеклом: на компьютере — материал с отражениями (стекло гладкое, стена матовая), на телефоне — простой
   function facadeMaterial(tex) {
     const env = LITE ? null : getEnv();
-    if (!env || !tex.yMask) return lambert({ map: tex });
-    return new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map: tex, roughnessMap: tex.yMask, metalnessMap: tex.yMask, roughness: 1, metalness: 1, color: 0x9e9e9e, envMap: env, envMapIntensity: 0.75 }); // основной цвет приглушён: материал ярче простого на рассеянном свете неба
+    const glow = tex.yEmit ? { emissiveMap: tex.yEmit, emissive: 0x000000 } : {}; // ночью emissive включается (setNight)
+    if (!env || !tex.yMask) return lambert({ map: tex, ...glow });
+    return new THREE.MeshStandardMaterial({ side: THREE.DoubleSide, map: tex, roughnessMap: tex.yMask, metalnessMap: tex.yMask, roughness: 1, metalness: 1, color: 0x9e9e9e, envMap: env, envMapIntensity: 0.75, ...glow }); // основной цвет приглушён: материал ярче простого на рассеянном свете неба
   }
 
   /* ---------- Детали: заезды в паркинг, навесы, парковки ---------- */
@@ -884,6 +895,24 @@
     buildParking(root, p.parking || [], seed);
     buildYard(root, p.yard, seed);
     buildTrees(root, autoTrees(p, seed), seed);
+    // Фонари вдоль красной линии участка (2,5 м внутрь, шаг ~18 м): днём серые, ночью светят и дают пятно света на земле
+    const lamps = [];
+    if (p.plot) {
+      const ring = offsetPoly(p.plot, -2.5);
+      ring.forEach((a, i) => { const b = ring[(i + 1) % ring.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]), n = Math.floor(len / 18); for (let k = 1; k < n; k++) lamps.push([a[0] + (b[0] - a[0]) * k / n, a[1] + (b[1] - a[1]) * k / n]); });
+    }
+    const lampHeadMat = new THREE.MeshBasicMaterial({ color: 0x9a9da2 }), lampGlowMat = new THREE.MeshBasicMaterial({ color: 0xffc777, map: (() => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32); gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.5, 'rgba(255,255,255,.35)'); gr.addColorStop(1, 'rgba(255,255,255,0)'); g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return new THREE.CanvasTexture(c); })(), transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    if (lamps.length) {
+      const o = new THREE.Object3D(), post = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.06, 0.09, 1, 6), lambert({ color: 0x3a3d42 }), lamps.length);
+      const head = new THREE.InstancedMesh(new THREE.SphereGeometry(0.28, 8, 6), lampHeadMat, lamps.length), glow = new THREE.InstancedMesh(new THREE.CircleGeometry(1, 20), lampGlowMat, lamps.length);
+      lamps.forEach(([x, y], i) => {
+        o.position.set(x, y, 2.4); o.rotation.set(Math.PI / 2, 0, 0); o.scale.set(1, 4.8, 1); o.updateMatrix(); post.setMatrixAt(i, o.matrix);
+        o.position.set(x, y, 4.85); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1); o.updateMatrix(); head.setMatrixAt(i, o.matrix);
+        o.position.set(x, y, 0.5); o.scale.set(6, 6, 1); o.updateMatrix(); glow.setMatrixAt(i, o.matrix);
+      });
+      glow.userData.noShadow = head.userData.noShadow = true; glow.renderOrder = 5;
+      root.add(post, head, glow);
+    }
 
     // Жилые блоки
     const blockInfo = {};
@@ -1069,6 +1098,22 @@
     catcher.position.set(ext.cx, ext.cy, 0.03); catcher.receiveShadow = true; catcher.visible = false; root.add(catcher);
     const defaults = { pos: sun.position.clone(), int: sun.intensity, amb: amb.intensity, hemi: hemiL.intensity };
     // az — азимут солнца (0 = север, по часовой), alt — высота над горизонтом, градусы
+    // Ночь: лунный свет, окна светятся (emissive из текстуры), фонари горят
+    const lightDay = {};
+    function setNight(on) {
+      if (!lightDay.amb) Object.assign(lightDay, { amb: [amb.intensity, amb.color.getHex()], hemi: hemiL.intensity, sun: [sun.intensity, sun.color.getHex()] });
+      root.traverse((m) => {
+        if (!m.isMesh) return;
+        for (const mt of [].concat(m.userData.mat || m.material)) {
+          if (mt && mt.emissiveMap) { mt.emissive.setHex(on ? (mt === shopMat ? 0x9a8a70 : 0xffffff) : 0x000000); if (mt.envMapIntensity != null) mt.envMapIntensity = on ? 0.15 : 0.75; }
+        }
+      });
+      lampHeadMat.color.setHex(on ? 0xffe2a8 : 0x9a9da2); lampGlowMat.opacity = on ? 0.55 : 0;
+      if (on) { root.traverse((m) => { if (m.isMesh) { m.castShadow = false; m.receiveShadow = false; } }); catcher.visible = false; sun.castShadow = false;
+        amb.intensity = 0.16; amb.color.setHex(0x8796c0); hemiL.intensity = 0.12; sun.intensity = 0.12; sun.color.setHex(0x9fb2e0); }
+      else { amb.intensity = lightDay.amb[0]; amb.color.setHex(lightDay.amb[1]); hemiL.intensity = lightDay.hemi; sun.color.setHex(lightDay.sun[1]); }
+      shadowState.dirty = true;
+    }
     function setSun(on, az, alt) {
       const shadows = !!on;
       shadowState.dirty = true; // тени пересчитываем только когда что-то поменялось
@@ -1119,7 +1164,7 @@
       matchMesh.geometry = g; matchMesh.visible = true;
     }
     [hoverMesh, selMesh, aptMesh].forEach((x) => { x.userData.noShadow = true; });
-    return { shadowState, scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
+    return { setNight, shadowState, scene, root, pick, placeHighlight, hoverMesh, selMesh, placeApt, aptMesh, aptMat, focus, setFocus, applyGhost, blockInfo, setSun, sunBlocked, setMatches, rayDist };
   }
 
   /* ---------- Слой MapLibre ---------- */
@@ -1223,11 +1268,12 @@
     // Кусочки фасада блока (центр, нормаль, есть ли окна) — для камеры «со стороны окон»
     const facade = (p, b) => { const L = layers[p.id]; return L && L.built ? L.built.blockInfo[b.id].pieces : null; };
     const sunState = { on: false };
+    function setNight(on) { for (const id in layers) { const L = layers[id]; if (L.built) L.built.setNight(on); } map.triggerRepaint(); }
     function setSun(on, az, alt) { sunState.on = on; for (const id in layers) { const L = layers[id]; if (L.built) L.built.setSun(on, az, alt); } map.triggerRepaint(); }
     const sunBlocked = (p, pt, az, alt) => { const L = layers[p.id]; return !!(L && L.built && L.built.sunBlocked(pt, az, alt)); };
     function setMatches(p, quads) { const L = layers[p.id]; if (L && L.built) { L.built.setMatches(quads); map.triggerRepaint(); return true; } return false; }
     const rayDist = (p, pt, az) => { const L = layers[p.id]; return L && L.built ? L.built.rayDist(pt, az) : 400; };
-    return { pick, highlight, highlightApt, focusBlock, facade, setSun, sunBlocked, setMatches, rayDist };
+    return { pick, highlight, highlightApt, focusBlock, facade, setNight, setSun, sunBlocked, setMatches, rayDist };
   }
 
   window.Yurta3D = { init };

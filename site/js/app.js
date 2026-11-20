@@ -75,6 +75,7 @@
      Горы к югу от Бишкека: ~20–30 км, вершины ~4000–4800 м над городом (800 м) → видны под углом 6–9°.
      Рисуем силуэт по азимуту (юг ≈ 180°) на холсте под картой; карта рисует только землю. */
   let horizonDraw = null;
+  const night = { on: false };
   function setupHorizon() {
     const box = map.getContainer(), cv = document.createElement('canvas');
     cv.className = 'y-horizon'; cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none';
@@ -98,8 +99,10 @@
       // getHorizon() — расстояние от центра кадра (с учётом отступов) до линии горизонта
       let hy = 0; try { const t = map.transform; hy = (t.centerPoint ? t.centerPoint.y : H / 2) - t.getHorizon(); } catch (e) {}
       const sky = g.createLinearGradient(0, 0, 0, Math.max(hy, 1));
-      sky.addColorStop(0, '#8fb6e0'); sky.addColorStop(0.7, '#c4d8ec'); sky.addColorStop(1, '#eef2f6');
+      if (night.on) { sky.addColorStop(0, '#060b18'); sky.addColorStop(0.75, '#16223a'); sky.addColorStop(1, '#2c3a55'); }
+      else { sky.addColorStop(0, '#8fb6e0'); sky.addColorStop(0.7, '#c4d8ec'); sky.addColorStop(1, '#eef2f6'); }
       g.fillStyle = sky; g.fillRect(0, 0, W, H);
+      if (night.on) { const rs = (i) => (Math.sin(i * 12.9898) * 43758.5453) % 1; g.fillStyle = 'rgba(255,255,255,.7)'; for (let i = 1; i < 140; i++) { const x = Math.abs(rs(i)) * W, y = Math.abs(rs(i + 500)) * Math.max(hy - 20, 0); g.fillRect(x, y, 1.2, 1.2); } }
       if (hy <= 2) return;
       const vfov = 36.87, ppd = H / vfov, hfov = 2 * Math.atan(Math.tan(vfov / 2 * Math.PI / 180) * W / H) * 180 / Math.PI, brg = map.getBearing();
       const layer = (k, fill, snow) => {
@@ -108,15 +111,15 @@
         for (let x = 0; x <= W; x += 3) { const a = brg + (x / W - 0.5) * hfov, h = ridge(a, k); pts.push([x, h]); g.lineTo(x, h < 0 ? hy + 2 : hy - h * ppd); }
         g.lineTo(W, hy + 2); g.closePath(); g.fillStyle = fill; g.fill();
         if (snow) { // снег на вершинах: всё, что выше ~75% местной высоты хребта
-          g.save(); g.clip(); g.fillStyle = 'rgba(255,255,255,.88)';
+          g.save(); g.clip(); g.fillStyle = night.on ? 'rgba(150,165,195,.45)' : 'rgba(255,255,255,.88)';
           g.beginPath(); g.moveTo(0, hy);
           for (const [x, h] of pts) { const a2 = brg + (x / W - 0.5) * hfov, dip = 0.5 + 0.9 * Math.abs(Math.sin(a2 * 0.7)) * Math.abs(Math.sin(a2 * 2.3 + 1)); g.lineTo(x, h < 0 ? hy : hy - Math.max(h * 0.72, h - dip) * ppd); }
           g.lineTo(W, hy); g.lineTo(W, 0); g.lineTo(0, 0); g.closePath(); g.fill(); g.restore();
         }
       };
-      layer(0, '#a3b2c3', true);   // дальний хребет со снегом, в голубой дымке
-      layer(1.7, '#93a09c', false); // предгорья
-      const haze = g.createLinearGradient(0, hy - 3.5 * ppd, 0, hy + 2); haze.addColorStop(0, 'rgba(230,236,242,0)'); haze.addColorStop(1, 'rgba(230,236,242,.7)');
+      layer(0, night.on ? '#1c2638' : '#a3b2c3', true);   // дальний хребет со снегом, в голубой дымке
+      layer(1.7, night.on ? '#121a28' : '#93a09c', false); // предгорья
+      const haze = g.createLinearGradient(0, hy - 3.5 * ppd, 0, hy + 2); haze.addColorStop(0, 'rgba(230,236,242,0)'); haze.addColorStop(1, night.on ? 'rgba(40,52,78,.7)' : 'rgba(230,236,242,.7)');
       g.fillStyle = haze; g.fillRect(0, hy - 3.5 * ppd, W, 3.5 * ppd + 2);
     };
     horizonDraw = draw;
@@ -132,6 +135,16 @@
     // небо карты прозрачное — за ним рисуем своё небо и горы Ала-Тоо (см. «Горизонт»)
     try { map.setSky({ 'sky-color': 'rgba(169,199,232,0)', 'horizon-color': 'rgba(238,242,246,0)', 'sky-horizon-blend': 0, 'horizon-fog-blend': 0, 'fog-color': '#e6ebf0', 'fog-ground-blend': 0.25 }); } catch (e) {}
     setupHorizon();
+    // Ночь: тёмная вуаль поверх базовой карты (под 3D-слоями) — включается кнопкой «луна»
+    map.addLayer({ id: 'y-night', type: 'background', paint: { 'background-color': '#08101e', 'background-opacity': 0 } });
+    map.addControl({
+      onAdd() {
+        const el = document.createElement('div'); el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        el.innerHTML = '<button type="button" class="y-night-btn" title="Ночной вид" aria-label="Ночной вид" style="font-size:16px">🌙</button>';
+        el.querySelector('button').onclick = () => setNight(!night.on);
+        return el;
+      }, onRemove() {},
+    }, 'top-right');
     // участки — светлая подложка под моделью
     map.addSource('y-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: PROJECTS.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring(p, p.plot)] } })) } });
     map.addLayer({ id: 'y-plots', type: 'fill', source: 'y-plots', paint: { 'fill-color': '#d9d4ca', 'fill-opacity': 0.9 } });
@@ -146,6 +159,7 @@
     }
     engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
     setTimeout(() => sunDefault(), 0); // сцены строятся в onAdd слоёв — тени включаем сразу после
+    try { const first = map.getStyle().layers.find((l) => l.id.startsWith('y3d-')); if (first) map.moveLayer('y-night', first.id); } catch (e) {} // ночная вуаль — над всей картой, под 3D
     hideOsmBuildings();
     map.on('sourcedata', (e) => { if (e.sourceId === 'openmaptiles' && e.isSourceLoaded) hideOsmBuildings(); });
     addMarkers();
@@ -938,6 +952,7 @@
   }
   const sunState = { day: 'spring', hour: 13, on: false };
   function applySun(p) {
+    if (night.on) setNight(false);
     const d = SUN_DAYS().find((x) => x.id === sunState.day), ll = toLngLat(p, centroid(p.plot));
     const s = sunPos(localDate(d.ymd, sunState.hour), ll[1], ll[0]);
     if (engine) engine.setSun(true, s.az, s.alt);
@@ -949,6 +964,13 @@
     if (!engine) return;
     const s = sunPos(localDate(`${new Date().getFullYear()}-04-10`, 15), 42.87, 74.6);
     engine.setSun(true, s.az, s.alt);
+  }
+  function setNight(on) {
+    night.on = on;
+    try { map.setPaintProperty('y-night', 'background-opacity', on ? 0.78 : 0); map.setSky({ 'fog-color': on ? '#101a2c' : '#e6ebf0' }); } catch (e) {}
+    if (engine) { engine.setNight(on); if (!on) { if (sunState.on) applySun(state.project || PROJECTS[0]); else sunDefault(); } }
+    const b = document.querySelector('.y-night-btn'); if (b) b.textContent = on ? '☀' : '🌙';
+    if (horizonDraw) horizonDraw();
   }
   function sunOff() { if (sunState.on && engine) { sunDefault(); sunState.on = false; } }
   function sunHtml() {
