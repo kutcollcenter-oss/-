@@ -257,7 +257,7 @@
     });
     es.addEventListener('booking', (e) => {
       const bk = JSON.parse(e.data).booking, P = (window.YURTA_PROJECTS || []).find((x) => x.id === bk.project);
-      const head = { active: '📌 Новая бронь', sold: '✅ Бронь подтверждена — продано', cancelled: '✖ Бронь отменена', expired: '⏰ Бронь снята: не подтверждена за 24 ч' }[bk.state] || 'Бронь';
+      const head = { active: '📌 Новая бронь', sold: '✅ Бронь подтверждена — продано', cancelled: '✖ Бронь отменена', expired: '⏰ Бронь снята: не подтверждена за 24 ч', queue: '🕓 Очередь на забронированную квартиру' }[bk.state] || 'Бронь';
       toast(head, `${P ? P.name : bk.project}, кв. ${bk.key}`, null, `${bk.name} · ${bk.phone}`);
     });
     es.addEventListener('presence', (e) => { const d = JSON.parse(e.data); upsert(d.chat); });
@@ -426,7 +426,7 @@
       const bb = $('.bks', c); bb.innerHTML = '';
       const bl = (await api('/api/bookings')).bookings.slice(0, 30);
       if (!bl.length) bb.append(h('div', 'small', 'Пока броней нет.'));
-      const ST = { active: 'активна до ', sold: 'продано', cancelled: 'отменена', expired: 'снята (24 ч)' };
+      const ST = { active: 'активна до ', sold: 'продано', cancelled: 'отменена', expired: 'снята (24 ч)', queue: 'в очереди' };
       for (const x of bl) {
         const row = h('div', 'urow'), i = h('div');
         const until = x.state === 'active' ? new Date(x.expiresAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';

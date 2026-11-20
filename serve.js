@@ -21,11 +21,14 @@ let saveTimer = null;
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    saveTimer = null;
     const tmp = DB_FILE + '.tmp';
     fs.writeFileSync(tmp, JSON.stringify(db, null, 1));
     fs.renameSync(tmp, DB_FILE);
   }, 300);
 }
+function flush() { if (!saveTimer) return; clearTimeout(saveTimer); saveTimer = null; const tmp = DB_FILE + '.tmp'; fs.writeFileSync(tmp, JSON.stringify(db, null, 1)); fs.renameSync(tmp, DB_FILE); }
+for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => { try { flush(); } catch (e) {} process.exit(0); });
 
 /* ---------- Пароли и сессии ---------- */
 const hashPw = (pw, salt) => crypto.scryptSync(String(pw), salt, 64).toString('hex');
@@ -104,6 +107,32 @@ function limited(key, max, ms) {
 const BOOK_HOURS = +process.env.BOOK_HOURS || 24, ST = ['free', 'booked', 'sold'], KEY_RE = /^[\p{L}\p{N}]{1,6}-\d{1,5}$/u;
 for (const k of ['partners', 'bookings']) if (!Array.isArray(db[k])) db[k] = [];
 for (const k of ['partnerTokens', 'statuses']) if (!db[k] || typeof db[k] !== 'object') db[k] = {};
+// Каталог: читаем data.js в песочнице (там window.YURTA_PROJECTS) и считаем номера так же, как сайт:
+// номер = (этаж − первый жилой) × квартир на этаже + номер на плане
+const vm = require('vm');
+let catalogCache = { mtime: 0, map: {} };
+function catalog() {
+  const file = path.join(ROOT, 'js', 'data.js');
+  let st; try { st = fs.statSync(file); } catch (e) { return catalogCache.map; }
+  if (st.mtimeMs === catalogCache.mtime) return catalogCache.map;
+  const map = {};
+  try {
+    const ctx = { window: {} }; vm.createContext(ctx); vm.runInContext(fs.readFileSync(file, 'utf8'), ctx, { timeout: 2000 });
+    for (const p of ctx.window.YURTA_PROJECTS || []) {
+      const apts = map[p.id] = new Map();
+      for (const b of p.blocks || []) {
+        const first = b.firstResidentialFloor != null ? b.firstResidentialFloor : p.firstResidentialFloor, list = (b.plan && b.plan.apts) || [];
+        for (let fl = first; fl <= b.floors; fl++) for (const a of list) {
+          const num = (fl - first) * list.length + a.n;
+          apts.set(`${b.id}-${num}`, { block: b.id, floor: fl, number: num, rooms: a.rooms, area: a.area });
+        }
+      }
+    }
+  } catch (e) { console.log('catalog', e.message); return catalogCache.map; }
+  catalogCache = { mtime: st.mtimeMs, map };
+  return map;
+}
+const aptExists = (pid, key) => { const c = catalog()[pid]; return !!(c && c.has(key)); };
 const managed = (pid) => db.partners.some((x) => x.projects.includes(pid));
 const publicBooking = (x) => ({ id: x.id, project: x.project, key: x.key, name: x.name, phone: x.phone, info: x.info, state: x.state, createdAt: new Date(x.createdAt).toISOString(), expiresAt: new Date(x.expiresAt).toISOString() });
 const publicPartner = (x) => ({ id: x.id, name: x.name, login: x.login, projects: x.projects, webhook: x.webhook || '', createdAt: x.createdAt });
@@ -114,8 +143,10 @@ function notifyPartners(pid, event, data) {
     if (!pt.webhook || !pt.projects.includes(pid)) continue;
     const payload = JSON.stringify({ event, project: pid, at: new Date().toISOString(), ...data });
     const sig = crypto.createHmac('sha256', pt.secret).update(payload).digest('hex');
-    fetch(pt.webhook, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Objekty-Signature': sig }, body: payload, signal: AbortSignal.timeout(8000) })
-      .catch((e) => console.log('webhook', pt.login, event, e.message));
+    const attempt = (n) => fetch(pt.webhook, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Objekty-Signature': sig }, body: payload, signal: AbortSignal.timeout(8000) })
+      .then((rr) => { if (!rr.ok) throw new Error('HTTP ' + rr.status); })
+      .catch((e) => { console.log('webhook', pt.login, event, 'try', n, e.message); if (n < 3) setTimeout(() => attempt(n + 1), n * 60000); });
+    attempt(1);
   }
 }
 // Каждые 5 минут: просроченные брони снимаем — квартира снова «свободна», застройщику уходит запрос/уведомление
@@ -130,6 +161,8 @@ setInterval(() => {
     toStaff('booking', { booking: bk });
   }
   for (const [t, s] of Object.entries(db.partnerTokens)) if (s.exp < Date.now()) { delete db.partnerTokens[t]; n++; }
+  const keep = db.bookings.filter((x) => x.state === 'active' || (x.closedAt || x.createdAt) > Date.now() - 180 * 864e5);
+  if (keep.length !== db.bookings.length) { db.bookings = keep; n++; }
   if (n) save();
 }, +process.env.SWEEP_MS || 5 * 60 * 1000);
 
@@ -150,7 +183,7 @@ async function api(req, res, url) {
   const fwd = (req.headers['x-forwarded-for'] || '').split(',').pop().trim();
   const ip = /^(::ffff:)?127\.0\.0\.1$|^::1$/.test(sock) && fwd ? fwd : sock;
   if (m === 'POST' && !(req.headers['content-type'] || '').includes('application/json')) return json(res, 415, { error: 'json only' });
-  const b = m === 'POST' ? await body(req, p === '/api/media' ? 17e6 : 20000) : {};
+  const b = m === 'POST' ? await body(req, p === '/api/media' ? 17e6 : p === '/api/partner/statuses' ? 1e6 : 20000) : {};
   const me = currentUser(req);
 
   /* --- вход сотрудников --- */
@@ -175,9 +208,19 @@ async function api(req, res, url) {
     return json(res, 200, { live: managed(pid), statuses: map });
   }
   if (p === '/api/book' && m === 'POST') {
-    if (limited('book:' + ip, 5, 60 * 60 * 1000)) return json(res, 429, { error: 'Слишком много заявок. Попробуйте позже или напишите в чат.' });
+    // мобильные операторы выводят многих абонентов через один IP — лимит мягкий; главный — 2 активные брони на телефон
+    if (limited('book:' + ip, +process.env.BOOK_PER_IP || 20, 60 * 60 * 1000)) return json(res, 429, { error: 'Слишком много заявок. Попробуйте позже или напишите в чат.' });
     const pid = cleanText(b.project, 40), key = cleanText(b.key, 24), name = cleanText(b.name, 60), phone = cleanText(b.phone, 30);
     if (!pid || !KEY_RE.test(key) || !name || phone.replace(/\D/g, '').length < 9) return json(res, 400, { error: 'Укажите имя и телефон' });
+    if (!aptExists(pid, key)) return json(res, 400, { error: 'Такой квартиры нет' });
+    // очередь на забронированную квартиру: статус не меняется, менеджер видит заявку
+    if (b.queue) {
+      const q = { id: crypto.randomUUID(), project: pid, key, name, phone, info: cleanText(b.info, 300), createdAt: Date.now(), expiresAt: Date.now(), state: 'queue' };
+      db.bookings.push(q); save(); toStaff('booking', { booking: q });
+      return json(res, 200, { queued: true });
+    }
+    const digits = phone.replace(/\D/g, '').slice(-9);
+    if (db.bookings.filter((x) => x.state === 'active' && x.phone.replace(/\D/g, '').slice(-9) === digits).length >= 2) return json(res, 429, { error: 'На этот номер уже 2 активные брони. Менеджер свяжется с вами.' });
     const cur = (db.statuses[pid] || {})[key];
     if (cur && cur.st === 'sold') return json(res, 409, { error: 'Квартира уже продана' });
     if (cur && cur.st === 'booked') return json(res, 409, { error: 'Квартира уже забронирована. Оставьте заявку в чате — сообщим, если бронь снимут.' });
@@ -191,9 +234,13 @@ async function api(req, res, url) {
   /* --- API застройщика: вход по логину и паролю → токен на 24 часа --- */
   if (p.startsWith('/api/partner/')) {
     if (p === '/api/partner/token' && m === 'POST') {
-      if (limited('plogin:' + ip, 10, 10 * 60 * 1000)) return json(res, 429, { error: 'too many attempts, wait 10 minutes' });
+      const fails = (hits.get('pfail:' + ip) || []).filter((t) => Date.now() - t < 10 * 60 * 1000);
+      if (fails.length >= 10) return json(res, 429, { error: 'too many failed attempts, wait 10 minutes' });
       const pt = db.partners.find((x) => x.login === cleanText(b.login, 64).toLowerCase());
-      if (!pt || !checkPassword(pt, b.password || '')) return json(res, 401, { error: 'invalid login or password' });
+      if (!pt || !checkPassword(pt, b.password || '')) { limited('pfail:' + ip, 10, 10 * 60 * 1000); return json(res, 401, { error: 'invalid login or password' }); }
+      // старые токены этого застройщика не копим: оставляем 5 последних
+      const mine = Object.entries(db.partnerTokens).filter(([, v]) => v.pid === pt.id).sort((a, b2) => b2[1].exp - a[1].exp);
+      for (const [t] of mine.slice(4)) delete db.partnerTokens[t];
       const t = crypto.randomBytes(32).toString('hex');
       db.partnerTokens[t] = { pid: pt.id, exp: Date.now() + 864e5 }; save();
       return json(res, 200, { token: t, expiresIn: 86400, projects: pt.projects });
@@ -203,6 +250,12 @@ async function api(req, res, url) {
     if (!pt) return json(res, 401, { error: 'token missing or expired: POST /api/partner/token' });
     const own = (pid) => pt.projects.includes(pid);
     if (p === '/api/partner/projects' && m === 'GET') return json(res, 200, { projects: pt.projects });
+    if (p === '/api/partner/apartments' && m === 'GET') {
+      const pid = cleanText(url.searchParams.get('project'), 40); if (!own(pid)) return json(res, 403, { error: 'no access to project' });
+      const c = catalog()[pid]; if (!c) return json(res, 404, { error: 'project not found' });
+      const sts = db.statuses[pid] || {};
+      return json(res, 200, { project: pid, apartments: [...c].map(([key, a]) => ({ key, ...a, status: (sts[key] && sts[key].st) || 'free' })) });
+    }
     if (p === '/api/partner/statuses' && m === 'GET') {
       const pid = cleanText(url.searchParams.get('project'), 40); if (!own(pid)) return json(res, 403, { error: 'no access to project' });
       return json(res, 200, { project: pid, statuses: db.statuses[pid] || {} });
@@ -212,9 +265,10 @@ async function api(req, res, url) {
       const items = Array.isArray(b.items) ? b.items.slice(0, 5000) : [], bad = [];
       for (const it of items) {
         const key = cleanText(it && it.key, 24), st = it && it.status;
-        if (!KEY_RE.test(key) || !ST.includes(st)) { bad.push(it); continue; }
+        if (!KEY_RE.test(key) || !ST.includes(st)) { bad.push({ ...it, reason: 'bad key or status' }); continue; }
+        if (!aptExists(pid, key)) { bad.push({ ...it, reason: 'unknown apartment (see GET /api/partner/apartments)' }); continue; }
         setStatus(pid, key, st, pt.name);
-        for (const bk of db.bookings) if (bk.state === 'active' && bk.project === pid && bk.key === key && st !== 'booked') { bk.state = st === 'sold' ? 'sold' : 'cancelled'; bk.closedAt = Date.now(); }
+        for (const bk of db.bookings) if (bk.state === 'active' && bk.project === pid && bk.key === key && st !== 'booked') { bk.state = st === 'sold' ? 'sold' : 'cancelled'; bk.closedAt = Date.now(); toStaff('booking', { booking: bk }); }
       }
       save(); toStaff('statuses', { project: pid });
       return json(res, 200, { updated: items.length - bad.length, rejected: bad });
@@ -395,7 +449,7 @@ async function api(req, res, url) {
   if (p.startsWith('/api/partners')) {
     if (me.role !== 'admin') return json(res, 403, { error: 'Только для администратора' });
     const projList = (v) => (Array.isArray(v) ? v : []).map((x) => cleanText(x, 40)).filter(Boolean).slice(0, 50);
-    const hook = (v) => { const s = cleanText(v, 300); return /^https:\/\/[^\s]+$/.test(s) ? s : ''; };
+    const hook = (v) => { const s = cleanText(v, 300); return /^https:\/\/[^\s]+$/.test(s) || (process.env.ALLOW_HTTP_WEBHOOK && /^http:\/\/127\.0\.0\.1:\d+\//.test(s)) ? s : ''; }; // http — только в локальных тестах
     if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: db.partners.map(publicPartner) });
     if (p === '/api/partners' && m === 'POST') {
       const login = cleanText(b.login, 32).toLowerCase(), name = cleanText(b.name, 80), projects = projList(b.projects);

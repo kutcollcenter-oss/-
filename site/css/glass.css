@@ -33,7 +33,7 @@
   background: radial-gradient(120% 60% at 0% 0%, rgba(255,255,255,.55), transparent 55%), linear-gradient(180deg, rgba(255,255,255,.18), transparent 30%);
 }
 .panel > *, .chat-panel > *, .topbar > *, .modal-card > * { position: relative; z-index: 1; }
-.modal-card > .modal-close { position: absolute; }
+.modal-card > .modal-close { position: absolute; z-index: 3; } /* выше заголовка: иначе ✕ не нажимается */
 
 /* Тёмное стекло */
 .tooltip, #winBar, .tour-top, .tour-help, .toast, #cmpBar, .chat-panel header, .staff-dock > header {
