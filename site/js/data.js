@@ -8,6 +8,9 @@ window.YURTA_CONFIG = {
   // Номер WhatsApp для заявок в формате 996XXXXXXXXX. Пусто — заявка просто сохраняется в браузере.
   whatsapp: '',
   city: { name: 'Бишкек', center: [74.585, 42.862], zoom: 12.2 },
+  // Ключ MapTiler для свежих спутниковых снимков (публичный ключ, ограничить в кабинете MapTiler доменом сайта).
+  // Пусто — снимки Esri World Imagery.
+  maptilerKey: '',
   districts: [
     { id: 'all', name: 'Все районы' },
     { id: 'leninsky', name: 'Ленинский', center: [74.55, 42.84] },

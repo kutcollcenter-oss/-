@@ -138,7 +138,9 @@
     // Ночь: тёмная вуаль поверх базовой карты (под 3D-слоями) — включается кнопкой «луна»
     map.addLayer({ id: 'y-night', type: 'background', paint: { 'background-color': '#08101e', 'background-opacity': 0 } });
     // Спутник (Esri World Imagery): под дорогами и подписями, над заливками земли; по умолчанию выключен
-    map.addSource('y-sat', { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: 'Снимки © Esri, Maxar, Earthstar Geographics' });
+    map.addSource('y-sat', CFG.maptilerKey
+      ? { type: 'raster', tiles: ['https://api.maptiler.com/tiles/satellite-v2/{z}/{x}/{y}.jpg?key=' + CFG.maptilerKey], tileSize: 512, maxzoom: 20, attribution: '<a href="https://www.maptiler.com/copyright/" target="_blank">© MapTiler</a> © Maxar' }
+      : { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: 'Снимки © Esri, Maxar, Earthstar Geographics' });
     const firstLine = map.getStyle().layers.find((l) => l.type === 'line' || l.type === 'symbol');
     map.addLayer({ id: 'y-sat', type: 'raster', source: 'y-sat', layout: { visibility: 'none' }, paint: { 'raster-saturation': -0.1, 'raster-contrast': 0.05 } }, firstLine && firstLine.id);
     map.addControl({
