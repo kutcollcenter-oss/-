@@ -134,7 +134,7 @@
 .toast .x { border: 0; background: rgba(255,255,255,.12); color: #fff; border-radius: 10px; padding: 8px 12px; }
 
 @media (max-width: 760px) {
-  .chat-fab { top: 172px; bottom: auto; right: 10px; padding: 12px; } /* ниже кнопок карты (+ / − / компас кончаются на ~157 px) */
+  .chat-fab { top: 252px; bottom: auto; right: 10px; padding: 12px; } /* ниже кнопок карты: + / − / компас, спутник, ночь (кончаются на ~240 px) */
   .chat-fab span { display: none; }
   .chat-panel { right: 8px; left: 8px; top: 70px; bottom: auto; width: auto; height: calc(100vh - 90px); }
   .staff-login span { display: none; }

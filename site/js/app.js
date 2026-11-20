@@ -145,7 +145,7 @@
       onAdd() {
         const el = document.createElement('div'); el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
         el.innerHTML = '<button type="button" class="y-sat-btn" title="Спутник" aria-label="Спутник" style="font-size:15px">🛰</button>';
-        el.querySelector('button').onclick = () => setSatellite(!sat.on);
+        el.querySelector('button').onclick = () => { setSatellite(!sat.on); try { localStorage.setItem('ySat', sat.on ? '1' : '0'); } catch (e) {} };
         return el;
       }, onRemove() {},
     }, 'top-right');
@@ -170,6 +170,7 @@
       } else if (b.plan.outline) { boxOf(b); b.fp = planToLocal(p, b, b.plan.outline); }
     }
     engine = window.Yurta3D.init(map, PROJECTS, { floorBase, isWindow: facadeHasWindow });
+    { let v = null; try { v = localStorage.getItem('ySat'); } catch (e) {} if (v !== '0') setSatellite(true); } // спутник по умолчанию (если человек сам не выбрал карту)
     setTimeout(() => sunDefault(), 0); // сцены строятся в onAdd слоёв — тени включаем сразу после
     try { const first = map.getStyle().layers.find((l) => l.id.startsWith('y3d-')); if (first) map.moveLayer('y-night', first.id); } catch (e) {} // ночная вуаль — над всей картой, под 3D
     hideOsmBuildings();
