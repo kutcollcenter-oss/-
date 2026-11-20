@@ -677,6 +677,65 @@
     else { g.strokeRect(70, 12, 116, 60); g.strokeRect(70, 440, 116, 60); }
     return (YM[key] = new THREE.MeshLambertMaterial({ map: new THREE.CanvasTexture(c) }));
   }
+  /* ---------- Деревья: сами расставляются по газонам генплана ---------- */
+  const inPoly = (q, pts) => { let c = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > q[1]) !== (yj > q[1]) && q[0] < (xj - xi) * (q[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+  const GREEN = (c) => typeof c === 'string' && /^#(86b765|7fb35f|8bc06a)$/i.test(c);
+  function autoTrees(p, seed) {
+    const r = rng(seed + 909), out = [];
+    const lawns = [...(p.surfaces || []).filter((s) => GREEN(s.color)).map((s) => ({ pts: s.pts, z: s.z })),
+      ...(p.yard || []).filter((y) => y.t === 'lawn').map((y) => ({ pts: y.pts || rct(y.x0, y.y0, y.x1, y.y1), z: y.z || 0 }))];
+    const hard = (p.surfaces || []).filter((s) => !GREEN(s.color) && !s.holes && s.z > 0.3).map((s) => s.pts);
+    const blocks = p.blocks.map((b) => offsetPoly(b.fp, 5));
+    const vols = (p.volumes || []).map((v) => offsetPoly(v.pts, 3));
+    const yards = (p.yard || []).filter((y) => y.t !== 'lawn' && y.x0 != null).map((y) => rct(y.x0 - 1.5, y.y0 - 1.5, y.x1 + 1.5, y.y1 + 1.5));
+    const ramps = [...(p.ramps || []).map((d) => rct(d.x0 - 3, d.y0 - 6, d.x1 + 3, d.y1 + 3)), ...(p.downRamps || []).map((d) => d.axis === 'x' ? rct(Math.min(d.xIn, d.xOut) - 2, d.y0 - 2, Math.max(d.xIn, d.xOut) + 2, d.y1 + 2) : rct(d.x0 - 2, Math.min(d.yIn, d.yOut) - 2, d.x1 + 2, Math.max(d.yIn, d.yOut) + 2))];
+    const step = 7.5;
+    for (const L of lawns) {
+      const xs = L.pts.map((q) => q[0]), ys = L.pts.map((q) => q[1]);
+      for (let x = Math.min(...xs) + step / 2; x < Math.max(...xs); x += step) for (let y = Math.min(...ys) + step / 2; y < Math.max(...ys); y += step) {
+        const q = [x + (r() - 0.5) * step * 0.7, y + (r() - 0.5) * step * 0.7];
+        if (r() < 0.25 || !inPoly(q, L.pts)) continue;
+        if (hard.some((h) => inPoly(q, h)) || blocks.some((b) => inPoly(q, b)) || vols.some((v) => inPoly(q, v)) || yards.some((v) => inPoly(q, v)) || ramps.some((v) => inPoly(q, v))) continue;
+        out.push([q[0], q[1], L.z]);
+      }
+    }
+    // уличная аллея вдоль красной линии участка (как вдоль арыков в Бишкеке): 3,5 м снаружи, шаг ~9 м
+    if (p.plot && p.streetTrees !== false) {
+      const ring = offsetPoly(p.plot, 3.5);
+      ring.forEach((a, i) => {
+        const b = ring[(i + 1) % ring.length], len = Math.hypot(b[0] - a[0], b[1] - a[1]); if (len < 12) return;
+        const n = Math.floor(len / 9);
+        for (let k = 1; k < n; k++) {
+          const t = k / n, q = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+          if (r() < 0.12 || ramps.some((v) => inPoly(q, v)) || vols.some((v) => inPoly(q, v))) continue;
+          out.push([q[0], q[1], 0]);
+        }
+      });
+    }
+    return out.concat(p.trees || []);
+  }
+  function buildTrees(root, pts, seed) {
+    const r = rng(seed + 77), max = LITE ? 160 : 600;
+    if (pts.length > max) { const k = pts.length / max; pts = pts.filter((_, i) => Math.floor(i / k) !== Math.floor((i - 1) / k)); }
+    if (!pts.length) return;
+    const n = pts.length, o = new THREE.Object3D(), col = new THREE.Color();
+    const trunk = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.14, 0.2, 1, 6), lambert({ color: 0x6b5442 }), n);
+    const crown = new THREE.InstancedMesh(new THREE.IcosahedronGeometry(1, LITE ? 0 : 1), lambert({ color: 0xffffff }), n * 2);
+    const greens = [0x5d8f3e, 0x4f8236, 0x6c9c48, 0x48763a, 0x7aa552, 0x5a7f3a];
+    pts.forEach(([x, y, z], i) => {
+      const h = 2.2 + r() * 1.6, R = 1.6 + r() * 1.4, conifer = r() < 0.18;
+      o.position.set(x, y, z + h / 2); o.rotation.set(Math.PI / 2, 0, 0); o.scale.set(1, h, 1); o.updateMatrix(); trunk.setMatrixAt(i, o.matrix);
+      const c = col.setHex(greens[Math.floor(r() * greens.length)]);
+      // крона: основной шар + второй поменьше со сдвигом — силуэт не «шарик на палке»; у части деревьев — ель
+      o.rotation.set(r(), r(), r());
+      if (conifer) { o.position.set(x, y, z + h + R * 1.1); o.scale.set(R * 0.7, R * 0.7, R * 1.9); }
+      else { o.position.set(x, y, z + h + R * 0.75); o.scale.set(R, R, R * 0.85); }
+      o.updateMatrix(); crown.setMatrixAt(i * 2, o.matrix); crown.setColorAt(i * 2, conifer ? col.setHex(0x3b5f34) : c);
+      o.position.set(x + (r() - 0.5) * R, y + (r() - 0.5) * R, z + h + R * (conifer ? 0.4 : 1.25)); const s = R * (conifer ? 0.5 : 0.62); o.scale.set(s, s, s);
+      o.updateMatrix(); crown.setMatrixAt(i * 2 + 1, o.matrix); crown.setColorAt(i * 2 + 1, conifer ? col.setHex(0x3b5f34) : c.clone().offsetHSL(0, 0, 0.05));
+    });
+    root.add(trunk, crown);
+  }
   const PALETTES = { blue: [0x3aa7d9, 0xf08a3c, 0xffd23f], orange: [0xf08a3c, 0x3aa7d9, 0x7ac74f], bright: [0xe84855, 0x2ec4b6, 0xffbf00] };
   function buildYard(root, items, seed) {
     const r = rng(seed + 501);
@@ -816,6 +875,7 @@
     }
     buildParking(root, p.parking || [], seed);
     buildYard(root, p.yard, seed);
+    buildTrees(root, autoTrees(p, seed), seed);
 
     // Жилые блоки
     const blockInfo = {};
