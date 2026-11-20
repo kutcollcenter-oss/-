@@ -71,12 +71,67 @@
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'top-right');
   window.yurtaMap = map; // для отладки из консоли
 
+  /* ---------- Горизонт: небо и хребет Ала-Тоо за картой ----------
+     Горы к югу от Бишкека: ~20–30 км, вершины ~4000–4800 м над городом (800 м) → видны под углом 6–9°.
+     Рисуем силуэт по азимуту (юг ≈ 180°) на холсте под картой; карта рисует только землю. */
+  let horizonDraw = null;
+  function setupHorizon() {
+    const box = map.getContainer(), cv = document.createElement('canvas');
+    cv.className = 'y-horizon'; cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;z-index:0;pointer-events:none';
+    box.insertBefore(cv, box.firstChild);
+    const cc = box.querySelector('.maplibregl-canvas-container'); if (cc) cc.style.position = 'relative', cc.style.zIndex = 1;
+    // профиль хребта: сумма синусов (повторяется предсказуемо), выше всего на юге-юго-западе (Ала-Арча)
+    // гребни: «ridged noise» (1 − |sin|) даёт острые вершины и седловины, а не волны
+    const rid = (x) => 1 - Math.abs(Math.sin(x));
+    const ridge = (az, k) => {
+      const d = ((az - 185 + 540) % 360) - 180; if (Math.abs(d) > 100) return -1;
+      const env = Math.cos(d / 100 * Math.PI / 2) ** 0.6;
+      const n = 0.5 * rid(az * 0.09 + k) + 0.28 * rid(az * 0.23 + 2.1 * k) + 0.15 * rid(az * 0.61 + 3.7 * k) + 0.07 * rid(az * 1.7 + k);
+      return env * (k ? 0.9 + n * 1.3 : 2.2 + n * 3.0); // градусы над горизонтом: хребет до ~5°, предгорья до ~2°
+    };
+    let raf = 0;
+    const draw = () => {
+      raf = 0;
+      const dpr = Math.min(2, devicePixelRatio || 1), W = box.clientWidth, H = box.clientHeight;
+      if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+      const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      // getHorizon() — расстояние от центра кадра (с учётом отступов) до линии горизонта
+      let hy = 0; try { const t = map.transform; hy = (t.centerPoint ? t.centerPoint.y : H / 2) - t.getHorizon(); } catch (e) {}
+      const sky = g.createLinearGradient(0, 0, 0, Math.max(hy, 1));
+      sky.addColorStop(0, '#8fb6e0'); sky.addColorStop(0.7, '#c4d8ec'); sky.addColorStop(1, '#eef2f6');
+      g.fillStyle = sky; g.fillRect(0, 0, W, H);
+      if (hy <= 2) return;
+      const vfov = 36.87, ppd = H / vfov, hfov = 2 * Math.atan(Math.tan(vfov / 2 * Math.PI / 180) * W / H) * 180 / Math.PI, brg = map.getBearing();
+      const layer = (k, fill, snow) => {
+        g.beginPath(); g.moveTo(0, hy + 2);
+        const pts = [];
+        for (let x = 0; x <= W; x += 3) { const a = brg + (x / W - 0.5) * hfov, h = ridge(a, k); pts.push([x, h]); g.lineTo(x, h < 0 ? hy + 2 : hy - h * ppd); }
+        g.lineTo(W, hy + 2); g.closePath(); g.fillStyle = fill; g.fill();
+        if (snow) { // снег на вершинах: всё, что выше ~75% местной высоты хребта
+          g.save(); g.clip(); g.fillStyle = 'rgba(255,255,255,.88)';
+          g.beginPath(); g.moveTo(0, hy);
+          for (const [x, h] of pts) { const a2 = brg + (x / W - 0.5) * hfov, dip = 0.5 + 0.9 * Math.abs(Math.sin(a2 * 0.7)) * Math.abs(Math.sin(a2 * 2.3 + 1)); g.lineTo(x, h < 0 ? hy : hy - Math.max(h * 0.72, h - dip) * ppd); }
+          g.lineTo(W, hy); g.lineTo(W, 0); g.lineTo(0, 0); g.closePath(); g.fill(); g.restore();
+        }
+      };
+      layer(0, '#a3b2c3', true);   // дальний хребет со снегом, в голубой дымке
+      layer(1.7, '#93a09c', false); // предгорья
+      const haze = g.createLinearGradient(0, hy - 3.5 * ppd, 0, hy + 2); haze.addColorStop(0, 'rgba(230,236,242,0)'); haze.addColorStop(1, 'rgba(230,236,242,.7)');
+      g.fillStyle = haze; g.fillRect(0, hy - 3.5 * ppd, W, 3.5 * ppd + 2);
+    };
+    horizonDraw = draw;
+    const req = () => { if (!raf) raf = requestAnimationFrame(draw); };
+    map.on('move', req); map.on('resize', req); req();
+  }
+
   const state = { district: 'all', project: null, block: null, floor: null, apt: null, hoverKey: null };
   const markers = [];
   let engine = null;
 
   map.on('load', () => {
-    try { map.setSky({ 'sky-color': '#a9c7e8', 'horizon-color': '#eef2f6', 'sky-horizon-blend': 0.6, 'horizon-fog-blend': 0.5, 'fog-color': '#eef2f6', 'fog-ground-blend': 0.2 }); } catch (e) {}
+    // небо карты прозрачное — за ним рисуем своё небо и горы Ала-Тоо (см. «Горизонт»)
+    try { map.setSky({ 'sky-color': 'rgba(169,199,232,0)', 'horizon-color': 'rgba(238,242,246,0)', 'sky-horizon-blend': 0, 'horizon-fog-blend': 0, 'fog-color': '#e6ebf0', 'fog-ground-blend': 0.25 }); } catch (e) {}
+    setupHorizon();
     // участки — светлая подложка под моделью
     map.addSource('y-plots', { type: 'geojson', data: { type: 'FeatureCollection', features: PROJECTS.map((p) => ({ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [ring(p, p.plot)] } })) } });
     map.addLayer({ id: 'y-plots', type: 'fill', source: 'y-plots', paint: { 'fill-color': '#d9d4ca', 'fill-opacity': 0.9 } });
@@ -1106,6 +1161,8 @@
     map.once('render', () => {
       const cv = map.getCanvas(), out = document.createElement('canvas');
       out.width = 1280; out.height = Math.round(1280 * cv.height / cv.width);
+      const hz = map.getContainer().querySelector('.y-horizon'); // небо и горы лежат под картой отдельным холстом
+      if (hz) { if (horizonDraw) horizonDraw(); out.getContext('2d').drawImage(hz, 0, 0, out.width, out.height); }
       out.getContext('2d').drawImage(cv, 0, 0, out.width, out.height);
       r(out.toDataURL('image/jpeg', 0.84));
     });
