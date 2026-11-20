@@ -137,6 +137,18 @@
     setupHorizon();
     // Ночь: тёмная вуаль поверх базовой карты (под 3D-слоями) — включается кнопкой «луна»
     map.addLayer({ id: 'y-night', type: 'background', paint: { 'background-color': '#08101e', 'background-opacity': 0 } });
+    // Спутник (Esri World Imagery): под дорогами и подписями, над заливками земли; по умолчанию выключен
+    map.addSource('y-sat', { type: 'raster', tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'], tileSize: 256, maxzoom: 19, attribution: 'Снимки © Esri, Maxar, Earthstar Geographics' });
+    const firstLine = map.getStyle().layers.find((l) => l.type === 'line' || l.type === 'symbol');
+    map.addLayer({ id: 'y-sat', type: 'raster', source: 'y-sat', layout: { visibility: 'none' }, paint: { 'raster-saturation': -0.1, 'raster-contrast': 0.05 } }, firstLine && firstLine.id);
+    map.addControl({
+      onAdd() {
+        const el = document.createElement('div'); el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+        el.innerHTML = '<button type="button" class="y-sat-btn" title="Спутник" aria-label="Спутник" style="font-size:15px">🛰</button>';
+        el.querySelector('button').onclick = () => setSatellite(!sat.on);
+        return el;
+      }, onRemove() {},
+    }, 'top-right');
     map.addControl({
       onAdd() {
         const el = document.createElement('div'); el.className = 'maplibregl-ctrl maplibregl-ctrl-group';
@@ -964,6 +976,17 @@
     if (!engine) return;
     const s = sunPos(localDate(`${new Date().getFullYear()}-04-10`, 15), 42.87, 74.6);
     engine.setSun(true, s.az, s.alt);
+  }
+  const sat = { on: false };
+  function setSatellite(on) {
+    sat.on = on;
+    try {
+      map.setLayoutProperty('y-sat', 'visibility', on ? 'visible' : 'none');
+      // на спутнике прячем «плоские» заливки карты над снимком, участки ЖК делаем полупрозрачными
+      map.setPaintProperty('y-plots', 'fill-opacity', on ? 0.35 : 0.9);
+      for (const l of map.getStyle().layers) if ((l.type === 'fill' || l.type === 'background') && !/^y-/.test(l.id)) { if (on && l.layout && l.layout.visibility === 'none') continue; map.setLayoutProperty(l.id, 'visibility', on ? 'none' : 'visible'); }
+    } catch (e) {}
+    const b = document.querySelector('.y-sat-btn'); if (b) { b.textContent = on ? '🗺' : '🛰'; b.title = on ? 'Карта' : 'Спутник'; }
   }
   function setNight(on) {
     night.on = on;
