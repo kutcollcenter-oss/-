@@ -97,6 +97,42 @@ function limited(key, max, ms) {
   return arr.length > max;
 }
 
+/* ---------- Застройщики: статусы квартир и брони ----------
+   db.partners — учётки застройщиков (логин/пароль, свои ЖК, адрес для уведомлений);
+   db.statuses[ЖК][ключ квартиры] = { st: free|booked|sold, at, by };  ключ квартиры — «блок-номер», например «Б-37».
+   Бронь с сайта держится BOOK_HOURS часов: если застройщик не подтвердил продажу (и не продлил), снимается сама. */
+const BOOK_HOURS = +process.env.BOOK_HOURS || 24, ST = ['free', 'booked', 'sold'], KEY_RE = /^[\p{L}\p{N}]{1,6}-\d{1,5}$/u;
+for (const k of ['partners', 'bookings']) if (!Array.isArray(db[k])) db[k] = [];
+for (const k of ['partnerTokens', 'statuses']) if (!db[k] || typeof db[k] !== 'object') db[k] = {};
+const managed = (pid) => db.partners.some((x) => x.projects.includes(pid));
+const publicBooking = (x) => ({ id: x.id, project: x.project, key: x.key, name: x.name, phone: x.phone, info: x.info, state: x.state, createdAt: new Date(x.createdAt).toISOString(), expiresAt: new Date(x.expiresAt).toISOString() });
+const publicPartner = (x) => ({ id: x.id, name: x.name, login: x.login, projects: x.projects, webhook: x.webhook || '', createdAt: x.createdAt });
+function setStatus(pid, key, st, by) { (db.statuses[pid] = db.statuses[pid] || {})[key] = { st, at: Date.now(), by }; }
+// Уведомление застройщику на его адрес (webhook): POST JSON, подпись HMAC-SHA256 в заголовке X-Objekty-Signature
+function notifyPartners(pid, event, data) {
+  for (const pt of db.partners) {
+    if (!pt.webhook || !pt.projects.includes(pid)) continue;
+    const payload = JSON.stringify({ event, project: pid, at: new Date().toISOString(), ...data });
+    const sig = crypto.createHmac('sha256', pt.secret).update(payload).digest('hex');
+    fetch(pt.webhook, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Objekty-Signature': sig }, body: payload, signal: AbortSignal.timeout(8000) })
+      .catch((e) => console.log('webhook', pt.login, event, e.message));
+  }
+}
+// Каждые 5 минут: просроченные брони снимаем — квартира снова «свободна», застройщику уходит запрос/уведомление
+setInterval(() => {
+  let n = 0;
+  for (const bk of db.bookings) {
+    if (bk.state !== 'active' || bk.expiresAt > Date.now()) continue;
+    bk.state = 'expired'; bk.closedAt = Date.now(); n++;
+    const cur = (db.statuses[bk.project] || {})[bk.key];
+    if (!cur || cur.st === 'booked') setStatus(bk.project, bk.key, 'free', 'авто: бронь не подтверждена за ' + BOOK_HOURS + ' ч');
+    notifyPartners(bk.project, 'booking.expired', { booking: publicBooking(bk), status: 'free' });
+    toStaff('booking', { booking: bk });
+  }
+  for (const [t, s] of Object.entries(db.partnerTokens)) if (s.exp < Date.now()) { delete db.partnerTokens[t]; n++; }
+  if (n) save();
+}, +process.env.SWEEP_MS || 5 * 60 * 1000);
+
 /* ---------- HTTP ---------- */
 function json(res, code, data, headers = {}) { res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', ...headers }); res.end(JSON.stringify(data)); }
 function body(req, max = 20000) {
@@ -131,6 +167,76 @@ async function api(req, res, url) {
     return json(res, 200, { ok: true }, { 'Set-Cookie': 'ysid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0' });
   }
   if (p === '/api/me') return json(res, 200, { user: me ? publicUser(me) : null });
+
+  /* --- статусы квартир и брони (публично) --- */
+  if (p === '/api/statuses' && m === 'GET') {
+    const pid = cleanText(url.searchParams.get('project'), 40);
+    const map = Object.fromEntries(Object.entries(db.statuses[pid] || {}).map(([k, v]) => [k, v.st]));
+    return json(res, 200, { live: managed(pid), statuses: map });
+  }
+  if (p === '/api/book' && m === 'POST') {
+    if (limited('book:' + ip, 5, 60 * 60 * 1000)) return json(res, 429, { error: 'Слишком много заявок. Попробуйте позже или напишите в чат.' });
+    const pid = cleanText(b.project, 40), key = cleanText(b.key, 24), name = cleanText(b.name, 60), phone = cleanText(b.phone, 30);
+    if (!pid || !KEY_RE.test(key) || !name || phone.replace(/\D/g, '').length < 9) return json(res, 400, { error: 'Укажите имя и телефон' });
+    const cur = (db.statuses[pid] || {})[key];
+    if (cur && cur.st === 'sold') return json(res, 409, { error: 'Квартира уже продана' });
+    if (cur && cur.st === 'booked') return json(res, 409, { error: 'Квартира уже забронирована. Оставьте заявку в чате — сообщим, если бронь снимут.' });
+    const bk = { id: crypto.randomUUID(), project: pid, key, name, phone, info: cleanText(b.info, 300), createdAt: Date.now(), expiresAt: Date.now() + BOOK_HOURS * 3600e3, state: 'active' };
+    db.bookings.push(bk); setStatus(pid, key, 'booked', 'сайт'); save();
+    toStaff('booking', { booking: bk });
+    notifyPartners(pid, 'booking.created', { booking: publicBooking(bk) });
+    return json(res, 200, { booking: { id: bk.id, expiresAt: bk.expiresAt } });
+  }
+
+  /* --- API застройщика: вход по логину и паролю → токен на 24 часа --- */
+  if (p.startsWith('/api/partner/')) {
+    if (p === '/api/partner/token' && m === 'POST') {
+      if (limited('plogin:' + ip, 10, 10 * 60 * 1000)) return json(res, 429, { error: 'too many attempts, wait 10 minutes' });
+      const pt = db.partners.find((x) => x.login === cleanText(b.login, 64).toLowerCase());
+      if (!pt || !checkPassword(pt, b.password || '')) return json(res, 401, { error: 'invalid login or password' });
+      const t = crypto.randomBytes(32).toString('hex');
+      db.partnerTokens[t] = { pid: pt.id, exp: Date.now() + 864e5 }; save();
+      return json(res, 200, { token: t, expiresIn: 86400, projects: pt.projects });
+    }
+    const tk = (req.headers.authorization || '').replace(/^Bearer\s+/i, ''), ses = db.partnerTokens[tk];
+    const pt = ses && ses.exp > Date.now() && db.partners.find((x) => x.id === ses.pid);
+    if (!pt) return json(res, 401, { error: 'token missing or expired: POST /api/partner/token' });
+    const own = (pid) => pt.projects.includes(pid);
+    if (p === '/api/partner/projects' && m === 'GET') return json(res, 200, { projects: pt.projects });
+    if (p === '/api/partner/statuses' && m === 'GET') {
+      const pid = cleanText(url.searchParams.get('project'), 40); if (!own(pid)) return json(res, 403, { error: 'no access to project' });
+      return json(res, 200, { project: pid, statuses: db.statuses[pid] || {} });
+    }
+    if (p === '/api/partner/statuses' && m === 'POST') {
+      const pid = cleanText(b.project, 40); if (!own(pid)) return json(res, 403, { error: 'no access to project' });
+      const items = Array.isArray(b.items) ? b.items.slice(0, 5000) : [], bad = [];
+      for (const it of items) {
+        const key = cleanText(it && it.key, 24), st = it && it.status;
+        if (!KEY_RE.test(key) || !ST.includes(st)) { bad.push(it); continue; }
+        setStatus(pid, key, st, pt.name);
+        for (const bk of db.bookings) if (bk.state === 'active' && bk.project === pid && bk.key === key && st !== 'booked') { bk.state = st === 'sold' ? 'sold' : 'cancelled'; bk.closedAt = Date.now(); }
+      }
+      save(); toStaff('statuses', { project: pid });
+      return json(res, 200, { updated: items.length - bad.length, rejected: bad });
+    }
+    if (p === '/api/partner/bookings' && m === 'GET') {
+      const pid = cleanText(url.searchParams.get('project'), 40), state = cleanText(url.searchParams.get('state'), 12);
+      const list = db.bookings.filter((x) => own(x.project) && (!pid || x.project === pid) && (!state || x.state === state)).slice(-500).map(publicBooking);
+      return json(res, 200, { bookings: list });
+    }
+    const bm = p.match(/^\/api\/partner\/bookings\/([0-9a-f-]{36})$/);
+    if (bm && m === 'POST') {
+      const bk = db.bookings.find((x) => x.id === bm[1] && own(x.project)); if (!bk) return json(res, 404, { error: 'booking not found' });
+      if (bk.state !== 'active') return json(res, 409, { error: 'booking is ' + bk.state });
+      if (b.action === 'confirm') { bk.state = 'sold'; bk.closedAt = Date.now(); setStatus(bk.project, bk.key, 'sold', pt.name); }
+      else if (b.action === 'extend') { bk.expiresAt += Math.max(1, Math.min(72, +b.hours || 24)) * 3600e3; }
+      else if (b.action === 'cancel') { bk.state = 'cancelled'; bk.closedAt = Date.now(); setStatus(bk.project, bk.key, 'free', pt.name); }
+      else return json(res, 400, { error: 'action: confirm | extend | cancel' });
+      save(); toStaff('booking', { booking: bk });
+      return json(res, 200, { booking: publicBooking(bk) });
+    }
+    return json(res, 404, { error: 'not found' });
+  }
 
   /* --- гость --- */
   if (p.startsWith('/api/guest/')) {
@@ -280,6 +386,35 @@ async function api(req, res, url) {
     if (String(b.password || '').length < 6) return json(res, 400, { error: 'Пароль — минимум 6 символов' });
     setPassword(me, b.password); save();
     return json(res, 200, { ok: true });
+  }
+
+  /* --- брони для сотрудников --- */
+  if (p === '/api/bookings' && m === 'GET') return json(res, 200, { bookings: db.bookings.slice(-300).reverse().map(publicBooking) });
+
+  /* --- админ: застройщики (доступ к API) --- */
+  if (p.startsWith('/api/partners')) {
+    if (me.role !== 'admin') return json(res, 403, { error: 'Только для администратора' });
+    const projList = (v) => (Array.isArray(v) ? v : []).map((x) => cleanText(x, 40)).filter(Boolean).slice(0, 50);
+    const hook = (v) => { const s = cleanText(v, 300); return /^https:\/\/[^\s]+$/.test(s) ? s : ''; };
+    if (p === '/api/partners' && m === 'GET') return json(res, 200, { partners: db.partners.map(publicPartner) });
+    if (p === '/api/partners' && m === 'POST') {
+      const login = cleanText(b.login, 32).toLowerCase(), name = cleanText(b.name, 80), projects = projList(b.projects);
+      if (!/^[a-z0-9._-]{3,32}$/.test(login)) return json(res, 400, { error: 'Логин: 3–32 латинских буквы/цифры' });
+      if (!name || !projects.length) return json(res, 400, { error: 'Укажите название компании и хотя бы один ЖК' });
+      if (db.partners.some((x) => x.login === login) || db.users.some((x) => x.login === login)) return json(res, 400, { error: 'Такой логин уже есть' });
+      const pw = crypto.randomBytes(9).toString('base64url');
+      const pt = { id: crypto.randomUUID(), name, login, projects, webhook: hook(b.webhook), secret: crypto.randomBytes(24).toString('hex'), createdAt: Date.now() };
+      setPassword(pt, pw); db.partners.push(pt); save();
+      return json(res, 200, { partner: publicPartner(pt), password: pw, secret: pt.secret }); // пароль и секрет показываются один раз
+    }
+    const pm = p.match(/^\/api\/partners\/([0-9a-f-]{36})(\/password)?$/);
+    if (pm) {
+      const pt = db.partners.find((x) => x.id === pm[1]); if (!pt) return json(res, 404, { error: 'нет такого' });
+      const dropTokens = () => { for (const [t, s] of Object.entries(db.partnerTokens)) if (s.pid === pt.id) delete db.partnerTokens[t]; };
+      if (pm[2] && m === 'POST') { const pw = crypto.randomBytes(9).toString('base64url'); setPassword(pt, pw); dropTokens(); save(); return json(res, 200, { password: pw }); }
+      if (!pm[2] && m === 'POST') { if (b.projects) pt.projects = projList(b.projects); if (b.webhook != null) pt.webhook = hook(b.webhook); save(); return json(res, 200, { partner: publicPartner(pt) }); }
+      if (m === 'DELETE') { db.partners = db.partners.filter((x) => x !== pt); dropTokens(); save(); return json(res, 200, { ok: true }); }
+    }
   }
 
   /* --- админ: сотрудники --- */

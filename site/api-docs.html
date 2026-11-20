@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API для застройщиков — Объекты</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --ink: #16181c; --muted: #5d636b; --line: #e4e1db; --bg: #faf8f5; --code: #f1eee8; --accent: #d4572a; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -.02em; }
+  h2 { font-size: 21px; margin: 34px 0 8px; padding-top: 14px; border-top: 1px solid var(--line); }
+  h3 { font-size: 16px; margin: 20px 0 6px; }
+  p, li { color: #2c3036; }
+  .lead { color: var(--muted); margin: 0 0 18px; }
+  code { background: var(--code); border-radius: 6px; padding: 1px 6px; font: 14px/1.4 ui-monospace, Consolas, monospace; }
+  pre { background: #1d2026; color: #e9e6df; border-radius: 12px; padding: 14px 16px; overflow-x: auto; font: 13.5px/1.5 ui-monospace, Consolas, monospace; }
+  pre code { background: none; padding: 0; color: inherit; }
+  .m { display: inline-block; min-width: 52px; text-align: center; border-radius: 6px; padding: 1px 8px; font: 700 12px/1.8 ui-monospace, monospace; color: #fff; background: #3b6fd8; margin-right: 6px; }
+  .m.post { background: #2d9d63; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  .note { background: #fff4ec; border-left: 3px solid var(--accent); border-radius: 8px; padding: 10px 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>API для застройщиков</h1>
+  <p class="lead">Через API ваша система (CRM, 1С, шахматка, сайт) держит статусы квартир на «Объектах» актуальными и получает брони, которые клиенты делают у нас на сайте.</p>
+
+  <div class="note">Доступ выдаём каждой компании отдельно: <b>логин и пароль</b> привязаны к вашим ЖК. Чужие ЖК через ваш доступ не видны и не меняются. Пароль храните на сервере, не в коде сайта.</div>
+
+  <h2>Как работает бронь</h2>
+  <ol>
+    <li>Клиент выбирает свободную квартиру на нашем сайте и оставляет имя и телефон.</li>
+    <li>Квартира сразу получает статус <code>booked</code> (бронь) на <b>24 часа</b>. Вам приходит уведомление <code>booking.created</code> с контактами клиента.</li>
+    <li>Менеджер связывается с клиентом и в течение 24 часов:
+      <ul>
+        <li>подтверждает продажу: <code>confirm</code> → статус <code>sold</code>;</li>
+        <li>или продлевает бронь: <code>extend</code>, до 72 часов за раз;</li>
+        <li>или отменяет: <code>cancel</code> → статус <code>free</code>.</li>
+      </ul>
+    </li>
+    <li>Если за 24 часа ничего не сделано, бронь <b>снимается автоматически</b>: квартира снова <code>free</code>, вам приходит <code>booking.expired</code>.</li>
+  </ol>
+
+  <h2>Адрес и формат</h2>
+  <p>Базовый адрес: <code id="base">https://ваш-адрес/api/partner</code>. Все запросы и ответы — JSON (<code>Content-Type: application/json</code>), время — ISO 8601 (UTC).</p>
+  <h3>Ключ квартиры</h3>
+  <p>Квартира обозначается ключом <code>блок-номер</code>: например <code>Б-37</code> или <code>3-64</code>. Номер — сквозной номер квартиры в блоке, как в ваших документах. Перед запуском сверяем нумерацию с вашей шахматкой.</p>
+  <h3>Статусы</h3>
+  <table><tr><th>Статус</th><th>Значение</th></tr>
+    <tr><td><code>free</code></td><td>Свободна — клиент может забронировать</td></tr>
+    <tr><td><code>booked</code></td><td>Бронь</td></tr>
+    <tr><td><code>sold</code></td><td>Продана</td></tr></table>
+  <p>Квартиры, которых нет в ваших данных, считаются свободными.</p>
+
+  <h2>1. Получить токен</h2>
+  <p><span class="m post">POST</span><code>/api/partner/token</code></p>
+  <pre><code>{ "login": "avangard", "password": "ваш пароль" }</code></pre>
+  <p>Ответ:</p>
+  <pre><code>{ "token": "3f9c…", "expiresIn": 86400, "projects": ["zhk-avangard"] }</code></pre>
+  <p>Токен действует 24 часа. Передавайте его в каждом запросе заголовком <code>Authorization: Bearer 3f9c…</code>. Когда токен истечёт, придёт ответ 401: получите новый токен тем же запросом. Не больше 10 попыток входа за 10 минут.</p>
+
+  <h2>2. Обновить статусы</h2>
+  <p><span class="m post">POST</span><code>/api/partner/statuses</code> — можно передать сразу всю шахматку, до 5000 квартир за раз.</p>
+  <pre><code>{
+  "project": "zhk-avangard",
+  "items": [
+    { "key": "Б-37", "status": "sold" },
+    { "key": "Б-38", "status": "booked" },
+    { "key": "А-12", "status": "free" }
+  ]
+}</code></pre>
+  <p>Ответ: <code>{ "updated": 3, "rejected": [] }</code>. Если поставить <code>sold</code> или <code>free</code> квартире, на которую есть активная бронь с сайта, бронь закроется сама.</p>
+  <p>Статусы на сайте обновляются у посетителей в течение минуты.</p>
+
+  <h2>3. Посмотреть статусы</h2>
+  <p><span class="m">GET</span><code>/api/partner/statuses?project=zhk-avangard</code></p>
+  <pre><code>{ "project": "zhk-avangard", "statuses": { "Б-37": { "st": "sold", "at": 1763712000000, "by": "СК Авангард" } } }</code></pre>
+
+  <h2>4. Брони</h2>
+  <p><span class="m">GET</span><code>/api/partner/bookings?project=zhk-avangard&amp;state=active</code></p>
+  <p><code>state</code>: <code>active</code> (ждёт решения), <code>sold</code>, <code>cancelled</code>, <code>expired</code>. Без параметров — все брони по вашим ЖК.</p>
+  <pre><code>{ "bookings": [ {
+  "id": "8c1e…", "project": "zhk-avangard", "key": "Б-38",
+  "name": "Айгерим", "phone": "+996 555 12 34 56",
+  "info": "5 этаж, 61,5 м², взнос 880 000 сом, 59 мес.",
+  "state": "active",
+  "createdAt": "2026-11-21T08:10:00.000Z", "expiresAt": "2026-11-22T08:10:00.000Z"
+} ] }</code></pre>
+
+  <h3>Подтвердить, продлить или отменить</h3>
+  <p><span class="m post">POST</span><code>/api/partner/bookings/{id}</code></p>
+  <pre><code>{ "action": "confirm" }              // продано → статус sold
+{ "action": "extend", "hours": 24 }  // продлить бронь (1–72 ч)
+{ "action": "cancel" }               // отменить → статус free</code></pre>
+
+  <h2>5. Уведомления (webhook) — по желанию</h2>
+  <p>Пришлите нам адрес <code>https://…</code>, и мы будем отправлять на него POST при каждом событии, чтобы не опрашивать API:</p>
+  <pre><code>{ "event": "booking.created", "project": "zhk-avangard", "at": "2026-11-21T08:10:00.000Z",
+  "booking": { "id": "8c1e…", "key": "Б-38", "name": "Айгерим", "phone": "+996 …", "expiresAt": "…" } }</code></pre>
+  <p>События: <code>booking.created</code> — новая бронь; <code>booking.expired</code> — бронь не подтвердили за 24 часа, квартира снова свободна (в теле <code>"status": "free"</code>, поставьте этот статус у себя).</p>
+  <p>Проверка подлинности: заголовок <code>X-Objekty-Signature</code> — это HMAC-SHA256 тела запроса с вашим секретом подписи (его выдаём вместе с паролем).</p>
+  <pre><code>// Node.js
+const sig = crypto.createHmac('sha256', SECRET).update(rawBody).digest('hex');
+if (sig !== req.headers['x-objekty-signature']) return res.status(401).end();</code></pre>
+
+  <h2>Пример: curl</h2>
+  <pre><code>TOKEN=$(curl -s -X POST <span class="b">BASE</span>/token -H 'Content-Type: application/json' \
+  -d '{"login":"avangard","password":"…"}' | jq -r .token)
+
+curl -s -X POST <span class="b">BASE</span>/statuses -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"project":"zhk-avangard","items":[{"key":"Б-37","status":"sold"}]}'</code></pre>
+
+  <h2>Ошибки</h2>
+  <table><tr><th>Код</th><th>Причина</th></tr>
+    <tr><td>400</td><td>Неверный формат запроса или действия</td></tr>
+    <tr><td>401</td><td>Нет токена, токен истёк, неверный логин или пароль</td></tr>
+    <tr><td>403</td><td>Нет доступа к этому ЖК</td></tr>
+    <tr><td>404</td><td>Бронь не найдена</td></tr>
+    <tr><td>409</td><td>Бронь уже закрыта (продана, отменена или снята)</td></tr>
+    <tr><td>429</td><td>Слишком много попыток входа — подождите 10 минут</td></tr></table>
+</main>
+<script>
+  const base = location.origin + '/api/partner';
+  document.getElementById('base').textContent = base;
+  document.querySelectorAll('.b').forEach((e) => { e.textContent = base; });
+</script>
+</body>
+</html>

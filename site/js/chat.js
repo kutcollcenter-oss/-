@@ -196,7 +196,7 @@
   const dock = h('aside', 'staff-dock'); dock.hidden = true;
   dock.innerHTML = `
     <header><div><b class="me-name"></b><small class="online"></small></div>
-      <div class="acts"><button class="adm" title="Сотрудники" hidden>👥</button><button class="pw" title="Сменить пароль">🔑</button><button class="out" title="Выйти">⎋</button><button class="hide" title="Свернуть">✕</button></div></header>
+      <div class="acts"><button class="adm" title="Сотрудники" hidden>👥</button><button class="prt" title="Застройщики и брони" hidden>🏗</button><button class="pw" title="Сменить пароль">🔑</button><button class="out" title="Выйти">⎋</button><button class="hide" title="Свернуть">✕</button></div></header>
     <nav><button data-tab="live" class="on">Смотрят сейчас <b class="n-live"></b></button><button data-tab="chats">Чаты <b class="n-unread"></b></button></nav>
     <div class="list"></div>
     <div class="conv" hidden>
@@ -221,6 +221,7 @@
     };
   };
   $('.adm', dock).onclick = openAdmin;
+  $('.prt', dock).onclick = openPartners;
   dock.querySelectorAll('nav button').forEach((b) => b.onclick = () => { staff.tab = b.dataset.tab; dock.querySelectorAll('nav button').forEach((x) => x.classList.toggle('on', x === b)); closeConv(); renderList(); });
   $('.conv .back', dock).onclick = closeConv;
   const cInput = $('.conv textarea', dock);
@@ -241,6 +242,7 @@
     loginBtn.querySelector('span').textContent = 'Пульт';
     $('.me-name', dock).textContent = me.name + (me.role === 'admin' ? ' · админ' : '');
     $('.adm', dock).hidden = me.role !== 'admin';
+    $('.prt', dock).hidden = me.role !== 'admin';
     setDock(true);
     const r = await api('/api/staff/chats').catch(() => ({ chats: [] }));
     r.chats.forEach((c) => staff.chats.set(c.gid, { ...c, messages: null }));
@@ -252,6 +254,11 @@
     es.addEventListener('view', (e) => {
       const d = JSON.parse(e.data); upsert(d.chat);
       toast(`👀 Гость смотрит ${viewText(d.view)}`, viewDetails(d.view), d.gid, d.chat.assignedName && d.chat.assignedTo !== me.id ? `ведёт ${d.chat.assignedName}` : '');
+    });
+    es.addEventListener('booking', (e) => {
+      const bk = JSON.parse(e.data).booking, P = (window.YURTA_PROJECTS || []).find((x) => x.id === bk.project);
+      const head = { active: '📌 Новая бронь', sold: '✅ Бронь подтверждена — продано', cancelled: '✖ Бронь отменена', expired: '⏰ Бронь снята: не подтверждена за 24 ч' }[bk.state] || 'Бронь';
+      toast(head, `${P ? P.name : bk.project}, кв. ${bk.key}`, null, `${bk.name} · ${bk.phone}`);
     });
     es.addEventListener('presence', (e) => { const d = JSON.parse(e.data); upsert(d.chat); });
     es.addEventListener('chat', (e) => upsert(JSON.parse(e.data).chat));
@@ -343,7 +350,7 @@
     if (text) t.append(h('div', 'txt', text));
     if (note) t.append(h('div', 'note', note));
     const row = h('div', 'row'), go = h('button', 'go', 'Написать'), x = h('button', 'x', 'Скрыть');
-    go.onclick = () => { openConv(gid); t.remove(); };
+    go.onclick = () => { openConv(gid); t.remove(); }; go.hidden = !gid;
     x.onclick = () => t.remove();
     row.append(go, x); t.append(row);
     toasts.prepend(t);
@@ -379,6 +386,62 @@
       e.preventDefault(); const fd = new FormData(e.target);
       try { await api('/api/users', { name: fd.get('name'), login: fd.get('login'), password: fd.get('password'), role: fd.get('admin') ? 'admin' : 'staff' }); e.target.reset(); $('.yc-err', c).hidden = true; load(); }
       catch (err) { const el = $('.yc-err', c); el.hidden = false; el.textContent = err.message; }
+    };
+  }
+
+  /* --- админ: застройщики (доступ к API) и брони --- */
+  async function openPartners() {
+    const projs = window.YURTA_PROJECTS || [], pname = (id) => (projs.find((x) => x.id === id) || {}).name || id;
+    const c = modal(`<h2>Застройщики · API</h2>
+      <p class="small" style="margin:4px 0 10px">Каждой компании — свой логин и пароль к API: она обновляет статусы своих ЖК и получает брони. Бронь с сайта держится 24 ч; не подтвердили — квартира снова свободна. Описание API: <a href="/api-docs.html" target="_blank">/api-docs.html</a></p>
+      <div class="users prts"></div>
+      <h3 style="margin-top:18px">Добавить застройщика</h3>
+      <form class="yc-form"><label>Компания<input name="name" required maxlength="80" placeholder="СК Авангард"></label>
+      <label>Логин API (латиницей)<input name="login" required pattern="[a-zA-Z0-9._-]{3,32}" placeholder="avangard"></label>
+      <div class="small" style="margin:2px 0 4px">ЖК этой компании:</div>
+      ${projs.map((p) => `<label class="chk"><input type="checkbox" name="p" value="${p.id}"> ${p.name}</label>`).join('')}
+      <label>Адрес для уведомлений (webhook, https) — необязательно<input name="webhook" type="url" placeholder="https://site.kg/objekty-hook"></label>
+      <div class="yc-err" hidden></div><button class="yc-btn">Создать доступ</button></form>
+      <h3 style="margin-top:18px">Последние брони</h3><div class="users bks"></div>`);
+    const secretBox = (title, rows) => {
+      const box = h('div', 'urow'); box.style.cssText = 'display:block;background:#fff7e6;border-radius:12px;padding:10px';
+      box.innerHTML = `<b>${title}</b><div class="small">Сохраните сейчас — больше не покажется.</div>` + rows.map(([k, v]) => `<div style="margin-top:4px">${k}: <code style="user-select:all">${v}</code></div>`).join('');
+      $('.prts', c).prepend(box);
+    };
+    const load = async () => {
+      const box = $('.prts', c); box.innerHTML = '';
+      const r = await api('/api/partners');
+      if (!r.partners.length) box.append(h('div', 'small', 'Пока никого.'));
+      for (const pt of r.partners) {
+        const row = h('div', 'urow'), info = h('div');
+        info.append(h('b', '', pt.name), h('small', '', ` ${pt.login} · ${pt.projects.map(pname).join(', ')}${pt.webhook ? ' · webhook ✓' : ''}`));
+        const reset = h('button', 'lnk', 'новый пароль'), del = h('button', 'lnk red', 'удалить');
+        reset.onclick = async () => {
+          if (!confirm(`Выдать ${pt.name} новый пароль? Старый перестанет работать.`)) return;
+          try { const x = await api(`/api/partners/${pt.id}/password`, {}); await load(); secretBox(`Новый пароль для ${pt.name}`, [['Логин', pt.login], ['Пароль', x.password]]); } catch (e) { alert(e.message); }
+        };
+        del.onclick = async () => { if (!confirm(`Отключить ${pt.name} от API?`)) return; try { await api(`/api/partners/${pt.id}`, undefined, 'DELETE'); load(); } catch (e) { alert(e.message); } };
+        row.append(info, reset, del); box.append(row);
+      }
+      const bb = $('.bks', c); bb.innerHTML = '';
+      const bl = (await api('/api/bookings')).bookings.slice(0, 30);
+      if (!bl.length) bb.append(h('div', 'small', 'Пока броней нет.'));
+      const ST = { active: 'активна до ', sold: 'продано', cancelled: 'отменена', expired: 'снята (24 ч)' };
+      for (const x of bl) {
+        const row = h('div', 'urow'), i = h('div');
+        const until = x.state === 'active' ? new Date(x.expiresAt).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+        i.append(h('b', '', `${pname(x.project)} · кв. ${x.key}`), h('small', '', ` ${x.name}, ${x.phone} · ${ST[x.state] || x.state}${until}`));
+        row.append(i); bb.append(row);
+      }
+    };
+    load();
+    $('form', c).onsubmit = async (e) => {
+      e.preventDefault(); const fd = new FormData(e.target);
+      try {
+        const x = await api('/api/partners', { name: fd.get('name'), login: fd.get('login'), projects: fd.getAll('p'), webhook: fd.get('webhook') });
+        e.target.reset(); $('.yc-err', c).hidden = true;
+        await load(); secretBox(`Доступ для ${x.partner.name}`, [['Логин', x.partner.login], ['Пароль', x.password], ['Секрет подписи webhook', x.secret]]);
+      } catch (err) { const el = $('.yc-err', c); el.hidden = false; el.textContent = err.message; }
     };
   }
 

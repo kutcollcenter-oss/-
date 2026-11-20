@@ -39,8 +39,25 @@
     return (h >>> 0) / 4294967295;
   }
   const aptNumber = (p, b, f, a) => (f - LV(p, b, 'firstResidentialFloor')) * b.plan.apts.length + a.n;
+  const LIVE = {};
+  // загрузка статусов с сервера: при старте и раз в минуту
+  async function loadLive() {
+    let changed = false;
+    await Promise.all(PROJECTS.map(async (p) => {
+      try {
+        const r = await (await fetch('/api/statuses?project=' + encodeURIComponent(p.id))).json();
+        const v = r.live || Object.keys(r.statuses || {}).length ? r : null;
+        if (JSON.stringify(v) !== JSON.stringify(LIVE[p.id] || null)) { if (v) LIVE[p.id] = v; else delete LIVE[p.id]; changed = true; }
+      } catch (e) {}
+    }));
+    if (changed && typeof route === 'function' && state.project) route();
+  }
+  setTimeout(loadLive, 0); setInterval(loadLive, 60000);
   function status(p, b, f, a) {
     const key = `${b.id}-${aptNumber(p, b, f, a)}`;
+    // статусы от застройщика (через наш API) важнее всего; если ЖК подключён к API — демо-статусы выключаются
+    const live = LIVE[p.id];
+    if (live) return live.statuses[key] || 'free';
     if (p.soldApts[key]) return p.soldApts[key];
     if (!p.demoStatuses) return 'free';
     const r = hash(p.id + key);
@@ -1472,16 +1489,25 @@
         <label class="field"><span>Телефон или WhatsApp</span><input name="phone" required type="tel" inputmode="tel" placeholder="+996 ___ ___ ___" autocomplete="tel"></label>
         <button class="cta" type="submit">Отправить заявку</button>
       </form>`);
-    $('#leadForm').onsubmit = (e) => {
+    $('#leadForm').onsubmit = async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const lead = { project: p.name, block: b.id, floor: f, apt: num, area: a.area, down, months, name: fd.get('name'), phone: fd.get('phone'), at: new Date().toISOString() };
       try { const arr = JSON.parse(localStorage.getItem('yurta_leads') || '[]'); arr.push(lead); localStorage.setItem('yurta_leads', JSON.stringify(arr)); } catch (err) {}
+      // бронь на сервере: квартира сразу «Бронь» на 24 часа, застройщик получает уведомление
+      if (status(p, b, f, a) === 'free') {
+        try {
+          const rs = await fetch('/api/book', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project: p.id, key: `${b.id}-${num}`, name: lead.name, phone: lead.phone, info: `${f} этаж, ${area(a.area)}, взнос ${som(down)}, ${months} мес.` }) });
+          const j = await rs.json();
+          if (!rs.ok) { $('#modalCard').innerHTML = `<button class="modal-close" data-close>✕</button><h2>Не получилось</h2><p class="muted" style="margin-top:8px">${esc(j.error || 'Попробуйте ещё раз')}</p><button class="cta" data-close>Понятно</button>`; loadLive(); return; }
+          LIVE[p.id] = LIVE[p.id] || { live: false, statuses: {} }; LIVE[p.id].statuses[`${b.id}-${num}`] = 'booked';
+        } catch (err) {}
+      }
       if (CFG.whatsapp) {
         const text = `Здравствуйте! Заявка с сайта «Объекты»:\nЖК ${p.name}, блок ${b.id}, ${f} этаж, кв. ${num} (${area(a.area)})\nВзнос ${som(down)}, рассрочка ${months} мес.\nИмя: ${lead.name}\nТелефон: ${lead.phone}`;
         window.open(`https://wa.me/${CFG.whatsapp}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
       }
-      $('#modalCard').innerHTML = `<button class="modal-close" data-close>✕</button><h2>Спасибо, ${esc(lead.name)}!</h2><p class="muted" style="margin-top:8px">Менеджер свяжется с вами в ближайшее время и подтвердит бронь квартиры № ${num}.</p><button class="cta" data-close>Хорошо</button>`;
+      $('#modalCard').innerHTML = `<button class="modal-close" data-close>✕</button><h2>Спасибо, ${esc(lead.name)}!</h2><p class="muted" style="margin-top:8px">Квартира № ${num} забронирована за вами на 24 часа. Менеджер свяжется с вами и подтвердит бронь.</p><button class="cta" data-close>Хорошо</button>`;
     };
   }
 
